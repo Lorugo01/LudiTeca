@@ -88,9 +88,38 @@ export function AuthProvider({ children }) {
       setLoading(false);
     }
   };
+  
+  // Atualizar os dados do usuário no contexto
+  const updateUserData = async () => {
+    try {
+      setLoading(true);
+      const { data, error } = await supabase.auth.getUser();
+      
+      if (error) throw error;
+      
+      if (data?.user) {
+        setUser(data.user);
+        return { success: true, user: data.user };
+      } else {
+        return { success: false, error: 'Usuário não encontrado' };
+      }
+    } catch (error) {
+      console.error('Erro ao atualizar dados do usuário:', error);
+      return { success: false, error: error.message };
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout, isAuthenticated: !!user }}>
+    <AuthContext.Provider value={{ 
+      user, 
+      loading, 
+      login, 
+      logout, 
+      updateUserData,
+      isAuthenticated: !!user 
+    }}>
       {children}
     </AuthContext.Provider>
   );

@@ -8,7 +8,8 @@ import Link from 'next/link';
 import { toast } from 'react-hot-toast';
 import { FaArrowLeft, FaImage } from 'react-icons/fa';
 import MediaLibrary from '../../components/editor/MediaLibrary';
-import Layout from '../../components/Layout';
+import EditorLayout from '../../components/EditorLayout';
+import Head from 'next/head';
 
 export default function NewBook() {
   const [title, setTitle] = useState('');
@@ -126,20 +127,22 @@ export default function NewBook() {
   
   if (isLoading) {
     return (
-      <Layout>
+      <EditorLayout>
+        <Head>
+          <title>Novo Livro - UniverseTeca</title>
+        </Head>
         <div className="text-center p-8">Carregando...</div>
-      </Layout>
+      </EditorLayout>
     );
   }
   
   return (
-    <Layout>
+    <EditorLayout>
+      <Head>
+        <title>Novo Livro - UniverseTeca</title>
+      </Head>
       <div className="container mx-auto px-4 py-8">
-        <div className="flex items-center justify-between mb-6">
-          <Link href="/books" className="flex items-center text-blue-600 hover:text-blue-800">
-            <FaArrowLeft className="mr-2" />
-            Voltar para Livros
-          </Link>
+        <div className="flex items-center justify-center mb-6">
           <h1 className="text-2xl font-bold">Criar Novo Livro</h1>
         </div>
         
@@ -285,7 +288,7 @@ export default function NewBook() {
           </div>
         )}
       </div>
-    </Layout>
+    </EditorLayout>
   );
 }
 

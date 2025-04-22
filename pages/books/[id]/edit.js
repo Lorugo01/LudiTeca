@@ -2,13 +2,17 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/router';
 import Head from 'next/head';
 import Link from 'next/link';
-import { FiChevronLeft, FiSave, FiPlus, FiTrash2, FiRefreshCw, FiMove, FiPlay, FiChevronUp, FiChevronDown, FiCopy, FiType, FiImage, FiMusic, FiEye, FiEyeOff, FiChevronRight } from 'react-icons/fi';
+import { FiChevronLeft, FiSave, FiPlus, FiTrash2, FiRefreshCw, FiMove, FiPlay, FiChevronUp, FiChevronDown, FiCopy, FiType, FiImage, FiMusic, FiEye, FiEyeOff, FiChevronRight, FiBook, FiEdit } from 'react-icons/fi';
 
 import { useAuth } from '../../../contexts/auth';
 import { getBook, updateBook } from '../../../lib/books';
+import { getAuthors } from '../../../lib/authors';
+import { getCategories } from '../../../lib/categories';
 import CanvasEditor from '../../../components/editor/CanvasEditor';
-import Layout from '../../../components/Layout';
+import EditorLayout from '../../../components/EditorLayout';
 import MediaLibrary from '../../../components/editor/MediaLibrary';
+import TimelineEditor from '../../../components/editor/TimelineEditor';
+
 
 // Deep clone utility to prevent reference issues
 const deepClone = (obj) => {
@@ -53,6 +57,20 @@ export default function EditBook() {
   const [isPreviewMode, setIsPreviewMode] = useState(false);
   const [currentStep, setCurrentStep] = useState(0);
   
+  // Add tabs state
+  const [currentTab, setCurrentTab] = useState('pages');
+  
+  // Add states for book details
+  const [title, setTitle] = useState('');
+  const [authorId, setAuthorId] = useState('');
+  const [description, setDescription] = useState('');
+  const [coverImage, setCoverImage] = useState('');
+  const [authors, setAuthors] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [categoryId, setCategoryId] = useState('');
+  const [loadingAuthors, setLoadingAuthors] = useState(true);
+  const [loadingCategories, setLoadingCategories] = useState(true);
+  
   // Prevent re-fetching when saving
   const savingRef = useRef(false);
 
@@ -78,6 +96,8 @@ export default function EditBook() {
     console.log("Verificando id e user para buscar livro:", { id, user });
     if (id && user) {
       fetchBook(id);
+      fetchAuthors();
+      fetchCategories();
     } else if (!id && !router.isReady) {
       // Router ainda não está pronto, esperando
       console.log("Router não está pronto ainda, aguardando...");
@@ -125,6 +145,13 @@ export default function EditBook() {
       if (data) {
         console.log("Livro carregado com sucesso:", data);
         setBook(data);
+        
+        // Inicializar detalhes do livro
+        setTitle(data.title || '');
+        setAuthorId(data.author_id || '');
+        setDescription(data.description || '');
+        setCoverImage(data.cover_image || '');
+        setCategoryId(data.category_id || '');
         
         // Inicializar as páginas do livro
         if (data.pages && data.pages.length > 0) {
@@ -185,6 +212,34 @@ export default function EditBook() {
     } finally {
       console.log("Finalizando fetchBook, setando loading como false");
       setLoading(false);
+    }
+  };
+
+  // Buscar autores
+  const fetchAuthors = async () => {
+    try {
+      setLoadingAuthors(true);
+      const { data, error } = await getAuthors();
+      if (error) throw error;
+      setAuthors(data || []);
+    } catch (err) {
+      console.error('Erro ao carregar autores:', err);
+    } finally {
+      setLoadingAuthors(false);
+    }
+  };
+
+  // Buscar categorias
+  const fetchCategories = async () => {
+    try {
+      setLoadingCategories(true);
+      const { data, error } = await getCategories();
+      if (error) throw error;
+      setCategories(data || []);
+    } catch (err) {
+      console.error('Erro ao carregar categorias:', err);
+    } finally {
+      setLoadingCategories(false);
     }
   };
 
@@ -276,9 +331,14 @@ export default function EditBook() {
       console.log("Estado atual do livro:", book);
       console.log("Estado atual das páginas:", pages);
       
-      // Atualizar o book para incluir as páginas atuais
+      // Atualizar o book para incluir as páginas atuais e detalhes
       const updatedBook = {
         ...book,
+        title,
+        author_id: authorId,
+        description,
+        cover_image: coverImage,
+        category_id: categoryId,
         pages: deepClone(pages) // Usar as páginas atuais
       };
       
@@ -320,7 +380,7 @@ export default function EditBook() {
       setSaving(false);
       savingRef.current = false;
     }
-  }, [book, id, pages]);
+  }, [book, id, pages, title, authorId, description, coverImage, categoryId]);
 
   // Go back to books list
   const goBack = useCallback(() => {
@@ -560,6 +620,12 @@ export default function EditBook() {
     const url = file.url;
     console.log("Media selected:", { type: mediaSelectionType, url, file });
     
+    // Handle cover image selection
+    if (mediaSelectionType === 'image' && currentTab === 'details') {
+      handleCoverImageSelect(file);
+      return;
+    }
+    
     if (mediaSelectionType === 'background') {
       // Update background of current page
       console.log("Setting background for page", currentPage, "to", url);
@@ -621,7 +687,7 @@ export default function EditBook() {
     }
     
     setShowMediaLibrary(false);
-  }, [mediaSelectionType, currentPage, pages, setSelectedElement]);
+  }, [mediaSelectionType, currentPage, pages, setSelectedElement, currentTab]);
   
   // Handle closing the Media Library
   const handleCloseMediaLibrary = useCallback(() => {
@@ -635,13 +701,22 @@ export default function EditBook() {
     }
   }, [isPreviewMode]);
 
+  // Handle cover image selection
+  const handleCoverImageSelect = useCallback((file) => {
+    if (file && file.url) {
+      setCoverImage(file.url);
+      setShowMediaLibrary(false);
+      setIsModified(true);
+    }
+  }, []);
+
   if (loading) {
     return (
-      <Layout>
+      <EditorLayout>
         <div className="flex items-center justify-center h-64">
           <div className="text-lg">Loading book...</div>
         </div>
-      </Layout>
+      </EditorLayout>
     );
   }
 
@@ -650,380 +725,515 @@ export default function EditBook() {
   }
 
   return (
-    <>
+    <EditorLayout>
       <Head>
-        <title>Editar Livro - {book.title} | UniverseTeca CMS</title>
+        <title>{book?.title || 'Editar Livro'} - UniverseTeca</title>
       </Head>
       
-      <Layout>
-        <div className="p-4">
-          {/* Debug info - can be removed later */}
-          {console.log("Current page background:", pages[currentPage]?.background)}
-          
-          <div className="flex justify-between items-center mb-6">
-            <h1 className="text-2xl font-bold">{book.title || 'Edit Book'}</h1>
+      <div className="p-4">
+        {/* Debug info - can be removed later */}
+        {console.log("Current page background:", pages[currentPage]?.background)}
+        
+        <div className="flex justify-between items-center mb-6">
+          <h1 className="text-2xl font-bold">{title || 'Edit Book'}</h1>
+        </div>
+        
+        {/* Tabs */}
+        <div className="flex mb-6 border-b border-gray-200">
+          <button
+            onClick={() => setCurrentTab('details')}
+            className={`py-2 px-4 font-medium ${
+              currentTab === 'details' 
+                ? 'text-blue-600 border-b-2 border-blue-600' 
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            <div className="flex items-center">
+              <FiEdit className="mr-2" />
+              Detalhes do Livro
+            </div>
+          </button>
+          <button
+            onClick={() => setCurrentTab('pages')}
+            className={`py-2 px-4 font-medium ${
+              currentTab === 'pages' 
+                ? 'text-blue-600 border-b-2 border-blue-600' 
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            <div className="flex items-center">
+              <FiBook className="mr-2" />
+              Editor de Páginas
+            </div>
+          </button>
+        </div>
+        
+        {/* Book Details Tab */}
+        {currentTab === 'details' && (
+          <div className="bg-white shadow-lg rounded-lg p-6 mb-6">
+            <h2 className="text-xl font-semibold mb-4">Informações do Livro</h2>
             
-            <div className="flex space-x-2">
-              <button
-                onClick={goBack}
-                className="flex items-center px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600"
+            {/* Cover Image */}
+            <div className="mb-6">
+              <label className="block text-gray-700 text-sm font-bold mb-2">
+                Capa do Livro
+              </label>
+              <div className="flex items-start">
+                <div 
+                  className="w-48 h-64 bg-gray-200 rounded border overflow-hidden flex items-center justify-center"
+                  style={{
+                    backgroundImage: coverImage ? `url(${coverImage})` : 'none',
+                    backgroundSize: 'cover',
+                    backgroundPosition: 'center'
+                  }}
+                >
+                  {!coverImage && (
+                    <div className="text-gray-500 flex flex-col items-center">
+                      <FiImage size={32} />
+                      <span className="mt-2">Sem capa</span>
+                    </div>
+                  )}
+                </div>
+                
+                <div className="ml-4 flex flex-col">
+                  <button
+                    onClick={() => {
+                      setMediaSelectionType('image');
+                      setShowMediaLibrary(true);
+                    }}
+                    className="flex items-center px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 mb-2"
+                  >
+                    <FiImage className="mr-2" />
+                    {coverImage ? 'Alterar Capa' : 'Adicionar Capa'}
+                  </button>
+                  
+                  {coverImage && (
+                    <button
+                      onClick={() => {
+                        setCoverImage('');
+                        setIsModified(true);
+                      }}
+                      className="flex items-center px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600"
+                    >
+                      <FiTrash2 className="mr-2" />
+                      Remover Capa
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+            
+            {/* Title */}
+            <div className="mb-4">
+              <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="title">
+                Título*
+              </label>
+              <input
+                id="title"
+                type="text"
+                value={title}
+                onChange={(e) => {
+                  setTitle(e.target.value);
+                  setIsModified(true);
+                }}
+                className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+                required
+              />
+            </div>
+            
+            {/* Author */}
+            <div className="mb-4">
+              <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="author">
+                Autor
+              </label>
+              <select
+                id="author"
+                value={authorId}
+                onChange={(e) => {
+                  setAuthorId(e.target.value);
+                  setIsModified(true);
+                }}
+                className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
               >
-                <FiChevronLeft className="mr-2" />
-                Back
+                <option value="">Selecione um autor</option>
+                {loadingAuthors ? (
+                  <option disabled>Carregando autores...</option>
+                ) : (
+                  authors.map(author => (
+                    <option key={author.id} value={author.id}>
+                      {author.name}
+                    </option>
+                  ))
+                )}
+              </select>
+            </div>
+            
+            {/* Category */}
+            <div className="mb-4">
+              <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="category">
+                Categoria
+              </label>
+              <select
+                id="category"
+                value={categoryId}
+                onChange={(e) => {
+                  setCategoryId(e.target.value);
+                  setIsModified(true);
+                }}
+                className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+              >
+                <option value="">Selecione uma categoria</option>
+                {loadingCategories ? (
+                  <option disabled>Carregando categorias...</option>
+                ) : (
+                  categories.map(category => (
+                    <option key={category.id} value={category.id}>
+                      {category.name}
+                    </option>
+                  ))
+                )}
+              </select>
+            </div>
+            
+            {/* Description */}
+            <div className="mb-4">
+              <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="description">
+                Descrição
+              </label>
+              <textarea
+                id="description"
+                value={description}
+                onChange={(e) => {
+                  setDescription(e.target.value);
+                  setIsModified(true);
+                }}
+                className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline h-32"
+                placeholder="Descrição do livro"
+              />
+            </div>
+          </div>
+        )}
+        
+        {/* Page Editor Tab */}
+        {currentTab === 'pages' && (
+          <>
+            {/* Page navigation */}
+            <div className="flex items-center mb-4 space-x-2">
+              <select
+                value={currentPage}
+                onChange={(e) => handlePageChange(parseInt(e.target.value))}
+                className="border border-gray-300 rounded px-3 py-2"
+              >
+                {pages.map((page, index) => (
+                  <option key={page.id} value={index}>
+                    Page {index + 1}
+                  </option>
+                ))}
+              </select>
+              
+              <button
+                onClick={addPage}
+                className="flex items-center px-3 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+                title="Add Page"
+              >
+                <FiPlus />
               </button>
               
+              {pages.length > 1 && (
+                <button
+                  onClick={deletePage}
+                  className="flex items-center px-3 py-2 bg-red-500 text-white rounded hover:bg-red-600"
+                  title="Delete Page"
+                >
+                  <FiTrash2 />
+                </button>
+              )}
+
               <button
                 onClick={saveBook}
                 disabled={saving || !isModified}
-                className={`flex items-center px-4 py-2 ${
+                className={`flex items-center px-3 py-2 ${
                   saving || !isModified ? 'bg-gray-400' : 'bg-green-500 hover:bg-green-600'
                 } text-white rounded`}
+                title="Salvar Alterações"
               >
-                <FiSave className="mr-2" />
-                {saving ? 'Saving...' : 'Save Changes'}
-              </button>
-            </div>
-          </div>
-          
-          {/* Page navigation */}
-          <div className="flex items-center mb-4 space-x-2">
-            <select
-              value={currentPage}
-              onChange={(e) => handlePageChange(parseInt(e.target.value))}
-              className="border border-gray-300 rounded px-3 py-2"
-            >
-              {pages.map((page, index) => (
-                <option key={page.id} value={index}>
-                  Page {index + 1}
-                </option>
-              ))}
-            </select>
-            
-            <button
-              onClick={addPage}
-              className="flex items-center px-3 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
-              title="Add Page"
-            >
-              <FiPlus />
-            </button>
-            
-            {pages.length > 1 && (
-              <button
-                onClick={deletePage}
-                className="flex items-center px-3 py-2 bg-red-500 text-white rounded hover:bg-red-600"
-                title="Delete Page"
-              >
-                <FiTrash2 />
-              </button>
-            )}
-            
-            {/* Element creation tools - Visible in both normal and preview modes */}
-            <div className="flex items-center ml-4 space-x-2 border-l border-gray-300 pl-4">
-              <div className="relative group">
-                <button
-                  onClick={() => handleAddText('normal')}
-                  className="p-2 bg-blue-500 text-white rounded hover:bg-blue-600"
-                  title="Add Text"
-                >
-                  <FiType size={18} />
-                </button>
-                <div className="absolute top-full left-0 mt-2 hidden group-hover:flex flex-col bg-white shadow-lg rounded p-1 border border-gray-200 z-10">
-                  {TEXT_STYLES.map(style => (
-                    <button
-                      key={style.value}
-                      onClick={() => handleAddText(style.value)}
-                      className="p-1 hover:bg-gray-100 rounded text-left text-sm whitespace-nowrap"
-                    >
-                      {style.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              
-              <button
-                onClick={() => handleShowMediaLibrary('image')}
-                className="p-2 bg-blue-500 text-white rounded hover:bg-blue-600"
-                title="Add Image"
-              >
-                <FiImage size={18} />
+                <FiSave className="mr-1" />
+                {saving ? 'Salvando...' : 'Salvar'}
               </button>
               
-              <button
-                onClick={() => handleShowMediaLibrary('audio')}
-                className="p-2 bg-blue-500 text-white rounded hover:bg-blue-600"
-                title="Add Audio"
-              >
-                <FiMusic size={18} />
-              </button>
-              
-              <button
-                onClick={() => handleShowMediaLibrary('background')}
-                className="p-2 bg-green-500 text-white rounded hover:bg-green-600"
-                title="Change Background"
-              >
-                Background
-              </button>
-            </div>
-            
-            {/* Preview controls with step navigation */}
-            <div className="flex items-center ml-4 space-x-2 border-l border-gray-300 pl-4">
-              <button
-                onClick={togglePreviewMode}
-                className={`p-2 ${isPreviewMode ? 'bg-red-500 hover:bg-red-600' : 'bg-purple-500 hover:bg-purple-600'} text-white rounded`}
-                title={isPreviewMode ? "Exit Animation Preview" : "Preview Animations"}
-              >
-                {isPreviewMode ? <FiEyeOff size={18} /> : <FiEye size={18} />}
-              </button>
-              
-              {/* Step navigation controls - only visible in preview mode */}
-              {isPreviewMode && (
-                <div className="flex items-center space-x-2">
+              {/* Ferramentas para adicionar elementos - Simplificado */}
+              <div className="flex items-center ml-4 space-x-2 border-l border-gray-300 pl-4">
+                <div className="relative group">
                   <button
-                    onClick={() => currentStep > 0 && setCurrentStep(currentStep - 1)}
-                    disabled={currentStep === 0}
-                    className={`p-2 ${currentStep === 0 ? 'bg-gray-400' : 'bg-blue-500 hover:bg-blue-600'} text-white rounded`}
-                    title="Previous Step"
+                    onClick={() => handleAddText('normal')}
+                    className="p-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+                    title="Adicionar texto"
                   >
-                    <FiChevronLeft size={18} />
+                    <FiType size={18} />
                   </button>
-                  
-                  <div className="px-2 py-1 bg-gray-100 rounded">
-                    <span className="text-sm">Etapa: {currentStep}</span>
+                  <div className="absolute top-full left-0 mt-2 hidden group-hover:flex flex-col bg-white shadow-lg rounded p-1 border border-gray-200 z-10">
+                    {TEXT_STYLES.map(style => (
+                      <button
+                        key={style.value}
+                        onClick={() => handleAddText(style.value)}
+                        className="p-1 hover:bg-gray-100 rounded text-left text-sm whitespace-nowrap"
+                      >
+                        {style.label}
+                      </button>
+                    ))}
                   </div>
-                  
+                </div>
+                
+                <button
+                  onClick={() => handleShowMediaLibrary('image')}
+                  className="p-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+                  title="Adicionar imagem"
+                >
+                  <FiImage size={18} />
+                </button>
+                
+                <button
+                  onClick={() => handleShowMediaLibrary('audio')}
+                  className="p-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+                  title="Adicionar áudio"
+                >
+                  <FiMusic size={18} />
+                </button>
+                
+                <button
+                  onClick={() => handleShowMediaLibrary('background')}
+                  className="p-2 bg-green-500 text-white rounded hover:bg-green-600"
+                  title="Alterar background"
+                >
+                  Background
+                </button>
+                
+                {pages[currentPage]?.background && (
                   <button
                     onClick={() => {
-                      // Find the maximum step in all elements
-                      const maxStep = Math.max(...pages[currentPage].elements.map(el => el.step || 0), 0);
-                      if (currentStep < maxStep) {
-                        setCurrentStep(currentStep + 1);
-                      }
+                      // Remove background of current page
+                      setPages(prev => {
+                        const updated = deepClone(prev);
+                        updated[currentPage].background = '';
+                        return updated;
+                      });
+                      setIsModified(true);
                     }}
-                    disabled={currentStep >= Math.max(...pages[currentPage].elements.map(el => el.step || 0), 0)}
-                    className={`p-2 ${currentStep >= Math.max(...pages[currentPage].elements.map(el => el.step || 0), 0) ? 'bg-gray-400' : 'bg-blue-500 hover:bg-blue-600'} text-white rounded`}
-                    title="Next Step"
+                    className="p-2 bg-red-500 text-white rounded hover:bg-red-600"
+                    title="Remover background"
                   >
-                    <FiChevronRight size={18} />
+                    <FiTrash2 size={18} />
                   </button>
-                </div>
-              )}
-            </div>
-            
-            {/* Element controls */}
-            {selectedElement && !isPreviewMode && (
-              <div className="flex items-center space-x-2 ml-4 bg-white border p-2 rounded shadow">
-                <span className="text-sm font-medium">Elemento selecionado:</span>
+                )}
+              </div>
+              
+              {/* Controle de modo de visualização */}
+              <div className="flex items-center ml-4 space-x-2 border-l border-gray-300 pl-4">
+                <button
+                  onClick={togglePreviewMode}
+                  className={`p-2 ${isPreviewMode ? 'bg-red-500 hover:bg-red-600' : 'bg-purple-500 hover:bg-purple-600'} text-white rounded`}
+                  title={isPreviewMode ? "Sair da visualização" : "Visualizar animações"}
+                >
+                  {isPreviewMode ? <FiEyeOff size={18} /> : <FiEye size={18} />}
+                </button>
                 
-                {/* Step selector */}
-                <div className="flex items-center bg-gray-100 px-2 py-1 rounded">
-                  <span className="text-xs mr-2">Etapa:</span>
-                  <input
-                    type="number"
-                    min="0"
-                    value={pages[currentPage].elements.find(el => el.id === selectedElement)?.step || 0}
-                    onChange={(e) => handleElementChange(selectedElement, { step: parseInt(e.target.value || 0) })}
-                    className="w-12 border border-gray-300 rounded px-1 py-0.5 text-sm"
-                  />
-                </div>
-                
-                {/* Image controls */}
-                {pages[currentPage].elements.find(el => el.id === selectedElement)?.type === 'image' && (
+                {/* Navegação de etapas - visível apenas no modo de visualização */}
+                {isPreviewMode && (
                   <div className="flex items-center space-x-2">
-                    <button 
-                      onClick={() => handleImageRotate(selectedElement, 'right')}
-                      className="p-1 bg-blue-500 text-white rounded hover:bg-blue-600"
-                      title="Girar 90°"
+                    <button
+                      onClick={() => currentStep > 0 && setCurrentStep(currentStep - 1)}
+                      disabled={currentStep === 0}
+                      className={`p-2 ${currentStep === 0 ? 'bg-gray-400' : 'bg-blue-500 hover:bg-blue-600'} text-white rounded`}
+                      title="Previous Step"
                     >
-                      <FiRefreshCw size={16} />
+                      <FiChevronLeft size={18} />
                     </button>
                     
-                    <button 
-                      onClick={() => handleImageFlip(selectedElement, 'horizontal')}
-                      className="p-1 bg-blue-500 text-white rounded hover:bg-blue-600"
-                      title="Espelhar horizontalmente"
-                    >
-                      <FiMove size={16} className="transform rotate-90" />
-                    </button>
+                    <div className="px-2 py-1 bg-gray-100 rounded">
+                      <span className="text-sm">Etapa: {currentStep}</span>
+                    </div>
                     
-                    <button 
-                      onClick={() => handleImageFlip(selectedElement, 'vertical')}
-                      className="p-1 bg-blue-500 text-white rounded hover:bg-blue-600"
-                      title="Espelhar verticalmente"
-                    >
-                      <FiMove size={16} />
-                    </button>
-                    
-                    <select
-                      value={pages[currentPage].elements.find(el => el.id === selectedElement)?.imageStyle?.objectFit || 'contain'}
-                      onChange={(e) => handleImageStyleChange(selectedElement, { objectFit: e.target.value })}
-                      className="border border-gray-300 rounded px-2 py-1 text-sm"
-                      title="Ajuste da imagem"
-                    >
-                      <option value="contain">Conter</option>
-                      <option value="cover">Cobrir</option>
-                      <option value="fill">Preencher</option>
-                    </select>
-                    
-                    <select
-                      value="none"
-                      onChange={(e) => {
-                        if (e.target.value === "1:1") handleFitToAspectRatio(selectedElement, "1:1");
-                        if (e.target.value === "4:3") handleFitToAspectRatio(selectedElement, "4:3");
-                        if (e.target.value === "16:9") handleFitToAspectRatio(selectedElement, "16:9");
-                        if (e.target.value === "reset") handleResetImageTransform(selectedElement);
+                    <button
+                      onClick={() => {
+                        // Find the maximum step in all elements
+                        const maxStep = Math.max(...pages[currentPage].elements.map(el => el.step || 0), 0);
+                        if (currentStep < maxStep) {
+                          setCurrentStep(currentStep + 1);
+                        }
                       }}
-                      className="border border-gray-300 rounded px-2 py-1 text-sm"
+                      disabled={currentStep >= Math.max(...pages[currentPage].elements.map(el => el.step || 0), 0)}
+                      className={`p-2 ${currentStep >= Math.max(...pages[currentPage].elements.map(el => el.step || 0), 0) ? 'bg-gray-400' : 'bg-blue-500 hover:bg-blue-600'} text-white rounded`}
+                      title="Next Step"
                     >
-                      <option value="none">Proporção</option>
-                      <option value="1:1">1:1 (Quadrado)</option>
-                      <option value="4:3">4:3</option>
-                      <option value="16:9">16:9</option>
-                      <option value="reset">Resetar</option>
-                    </select>
+                      <FiChevronRight size={18} />
+                    </button>
                   </div>
                 )}
-                
-                {/* Text style selector */}
-                {pages[currentPage].elements.find(el => el.id === selectedElement)?.type === 'text' && (
+              </div>
+              
+              {/* Element controls */}
+              {selectedElement && !isPreviewMode && (
+                <div className="flex items-center space-x-2 ml-4 bg-white border p-2 rounded shadow">
+                  <span className="text-sm font-medium">Elemento selecionado:</span>
+                  
+                  {/* Step selector */}
+                  <div className="flex items-center bg-gray-100 px-2 py-1 rounded">
+                    <span className="text-xs mr-2">Etapa:</span>
+                    <input
+                      type="number"
+                      min="0"
+                      value={pages[currentPage].elements.find(el => el.id === selectedElement)?.step || 0}
+                      onChange={(e) => handleElementChange(selectedElement, { step: parseInt(e.target.value || 0) })}
+                      className="w-12 border border-gray-300 rounded px-1 py-0.5 text-sm"
+                    />
+                  </div>
+                  
+                  {/* Image style selectors - manter apenas os dropdowns */}
+                  {pages[currentPage].elements.find(el => el.id === selectedElement)?.type === 'image' && (
+                    <div className="flex items-center space-x-2">
+                      <select
+                        value={pages[currentPage].elements.find(el => el.id === selectedElement)?.imageStyle?.objectFit || 'contain'}
+                        onChange={(e) => handleImageStyleChange(selectedElement, { objectFit: e.target.value })}
+                        className="border border-gray-300 rounded px-2 py-1 text-sm"
+                        title="Ajuste da imagem"
+                      >
+                        <option value="contain">Conter</option>
+                        <option value="cover">Cobrir</option>
+                        <option value="fill">Preencher</option>
+                      </select>
+                      
+                      <select
+                        value="none"
+                        onChange={(e) => {
+                          if (e.target.value === "1:1") handleFitToAspectRatio(selectedElement, "1:1");
+                          if (e.target.value === "4:3") handleFitToAspectRatio(selectedElement, "4:3");
+                          if (e.target.value === "16:9") handleFitToAspectRatio(selectedElement, "16:9");
+                          if (e.target.value === "reset") handleResetImageTransform(selectedElement);
+                        }}
+                        className="border border-gray-300 rounded px-2 py-1 text-sm"
+                      >
+                        <option value="none">Proporção</option>
+                        <option value="1:1">1:1 (Quadrado)</option>
+                        <option value="4:3">4:3</option>
+                        <option value="16:9">16:9</option>
+                        <option value="reset">Resetar</option>
+                      </select>
+                    </div>
+                  )}
+                  
+                  {/* Text style selector */}
+                  {pages[currentPage].elements.find(el => el.id === selectedElement)?.type === 'text' && (
+                    <select
+                      value={pages[currentPage].elements.find(el => el.id === selectedElement)?.textStyle || 'normal'}
+                      onChange={(e) => handleTextStyleChange(selectedElement, e.target.value)}
+                      className="border border-gray-300 rounded px-2 py-1 text-sm"
+                    >
+                      {TEXT_STYLES.map(style => (
+                        <option key={style.value} value={style.value}>
+                          {style.label}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  
+                  {/* Animation selector */}
                   <select
-                    value={pages[currentPage].elements.find(el => el.id === selectedElement)?.textStyle || 'normal'}
-                    onChange={(e) => handleTextStyleChange(selectedElement, e.target.value)}
+                    value={pages[currentPage].elements.find(el => el.id === selectedElement)?.animation || ''}
+                    onChange={(e) => handleAnimationChange(selectedElement, e.target.value)}
                     className="border border-gray-300 rounded px-2 py-1 text-sm"
                   >
-                    {TEXT_STYLES.map(style => (
-                      <option key={style.value} value={style.value}>
-                        {style.label}
+                    {ANIMATIONS.map(anim => (
+                      <option key={anim.value} value={anim.value}>
+                        {anim.label}
                       </option>
                     ))}
                   </select>
-                )}
-                
-                {/* Animation selector */}
-                <select
-                  value={pages[currentPage].elements.find(el => el.id === selectedElement)?.animation || ''}
-                  onChange={(e) => handleAnimationChange(selectedElement, e.target.value)}
-                  className="border border-gray-300 rounded px-2 py-1 text-sm"
-                >
-                  {ANIMATIONS.map(anim => (
-                    <option key={anim.value} value={anim.value}>
-                      {anim.label}
-                    </option>
-                  ))}
-                </select>
-                
-                {/* Animation preview button */}
-                <button 
-                  onClick={() => {
-                    const element = pages[currentPage].elements.find(el => el.id === selectedElement);
-                    if (element) {
-                      handlePlayAnimation(element.id, element.animation);
-                    }
-                  }}
-                  className="p-1 bg-blue-500 text-white rounded hover:bg-blue-600 flex items-center"
-                  title="Ver animação"
-                >
-                  <FiPlay size={16} />
-                </button>
-                
-                {/* Z-index controls */}
-                <button
-                  onClick={() => handleMoveForward(selectedElement)}
-                  className="p-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
-                  title="Bring Forward"
-                >
-                  <FiChevronUp size={16} />
-                </button>
-                
-                <button
-                  onClick={() => handleMoveBackward(selectedElement)}
-                  className="p-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
-                  title="Send Backward"
-                >
-                  <FiChevronDown size={16} />
-                </button>
-                
-                {/* Duplicate button */}
-                <button
-                  onClick={() => handleDuplicateElement(selectedElement)}
-                  className="p-1 bg-purple-500 text-white rounded hover:bg-purple-600"
-                  title="Duplicate Element"
-                >
-                  <FiCopy size={16} />
-                </button>
-                
-                {/* Remove button */}
-                <button
-                  onClick={() => handleRemoveElement(selectedElement)}
-                  className="p-1 bg-red-500 text-white rounded hover:bg-red-600"
-                  title="Remove Element"
-                >
-                  <FiTrash2 size={16} />
-                </button>
+                </div>
+              )}
+              
+              <div className="ml-4 text-sm text-gray-500">
+                {isModified ? 'Unsaved changes' : 'No unsaved changes'}
               </div>
-            )}
+            </div>
             
-            <div className="ml-4 text-sm text-gray-500">
-              {isModified ? 'Unsaved changes' : 'No unsaved changes'}
-            </div>
-          </div>
-          
-          {/* Canvas editor */}
-          <div className="bg-white p-6 rounded-lg shadow">
-            {pages.length > 0 && currentPage < pages.length && (
-              <CanvasEditor
-                page={pages[currentPage]}
-                onChange={handlePageUpdate}
-                selectedElement={selectedElement}
-                setSelectedElement={setSelectedElement}
-                onElementChange={handleElementChange}
-                onPlayAnimation={handlePlayAnimation}
-                onImageRotate={handleImageRotate}
-                onImageFlip={handleImageFlip}
-                onTextStyleChange={handleTextStyleChange}
-                onAnimationChange={handleAnimationChange}
-                onMoveForward={handleMoveForward}
-                onMoveBackward={handleMoveBackward}
-                onImageStyleChange={handleImageStyleChange}
-                onDuplicateElement={handleDuplicateElement}
-                onRemoveElement={handleRemoveElement}
-                isPreviewMode={isPreviewMode}
-                setIsPreviewMode={setIsPreviewMode}
-                currentStep={currentStep}
-                setCurrentStep={setCurrentStep}
-              />
-            )}
-          </div>
-          
-          {/* Media Library Modal */}
-          {showMediaLibrary && (
-            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-              <div className="bg-white rounded-lg w-3/4 h-3/4 overflow-hidden flex flex-col">
-                <div className="p-4 border-b border-gray-200 flex justify-between items-center">
-                  <h2 className="text-xl font-semibold">
-                    {mediaSelectionType === 'background' ? 'Selecionar Background' : 
-                     mediaSelectionType === 'image' ? 'Selecionar Imagem' : 
-                     mediaSelectionType === 'audio' ? 'Selecionar Áudio' : 'Biblioteca de Mídia'}
-                  </h2>
-                  <button
-                    onClick={handleCloseMediaLibrary}
-                    className="text-gray-500 hover:text-gray-700"
-                  >
-                    Fechar
-                  </button>
-                </div>
-                
-                <div className="flex-grow overflow-auto">
-                  <MediaLibrary 
-                    onSelect={handleMediaSelected}
-                    mediaType={mediaSelectionType}
+            {/* Canvas editor */}
+            <div className="bg-white p-6 rounded-lg shadow relative">
+              {pages.length > 0 && currentPage < pages.length && (
+                <>
+                <CanvasEditor
+                  page={pages[currentPage]}
+                  onChange={handlePageUpdate}
+                  selectedElement={selectedElement}
+                  setSelectedElement={setSelectedElement}
+                  onElementChange={handleElementChange}
+                  onPlayAnimation={handlePlayAnimation}
+                  onImageRotate={handleImageRotate}
+                  onImageFlip={handleImageFlip}
+                  onTextStyleChange={handleTextStyleChange}
+                  onAnimationChange={handleAnimationChange}
+                  onMoveForward={handleMoveForward}
+                  onMoveBackward={handleMoveBackward}
+                  onImageStyleChange={handleImageStyleChange}
+                  onDuplicateElement={handleDuplicateElement}
+                  onRemoveElement={handleRemoveElement}
+                  isPreviewMode={isPreviewMode}
+                  setIsPreviewMode={setIsPreviewMode}
+                  currentStep={currentStep}
+                  setCurrentStep={setCurrentStep}
                   />
-                </div>
+
+                <TimelineEditor
+                    elements={pages[currentPage]?.elements || []}
+                    currentStep={currentStep}
+                    setCurrentStep={setCurrentStep}
+                    onElementStepChange={(id, newStep) => {
+                      const updatedPages = [...pages];
+                      const elementIndex = updatedPages[currentPage].elements.findIndex(el => el.id === id);
+                      if (elementIndex !== -1) {
+                        updatedPages[currentPage].elements[elementIndex].step = newStep;
+                        setPages(updatedPages);
+                        setIsModified(true);
+                      }
+                    }}
+                  />
+                  </>
+              )}
+            </div>
+          </>
+        )}
+        
+        {/* Media Library Modal */}
+        {showMediaLibrary && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg shadow-xl w-4/5 h-4/5 flex flex-col">
+              <div className="flex justify-between items-center border-b p-4">
+                <h2 className="text-xl font-semibold">
+                  {mediaSelectionType === 'image' && currentTab === 'details' 
+                    ? 'Selecionar Capa do Livro' 
+                    : mediaSelectionType === 'image' 
+                      ? 'Adicionar Imagem' 
+                      : mediaSelectionType === 'audio' 
+                        ? 'Adicionar Áudio' 
+                        : 'Selecionar Fundo'}
+                </h2>
+                <button
+                  onClick={() => setShowMediaLibrary(false)}
+                  className="text-gray-500 hover:text-gray-700"
+                >
+                  &times;
+                </button>
+              </div>
+              <div className="flex-1 overflow-auto">
+                <MediaLibrary
+                  onSelect={handleMediaSelected}
+                  mediaType={mediaSelectionType}
+                />
               </div>
             </div>
-          )}
-        </div>
-      </Layout>
-    </>
+          </div>
+        )}
+      </div>
+    </EditorLayout>
   );
 }
 

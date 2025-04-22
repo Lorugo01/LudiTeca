@@ -338,7 +338,7 @@ const CanvasEditor = React.memo(({
   
   return (
     <div className="flex flex-col h-full">
-      {/* Barra de ferramentas do editor */}
+      {/* Barra de ferramentas do editor - Simplificada */}
       <div className="flex items-center justify-between p-2 bg-gray-100 border-b border-gray-300">
         <div className="flex items-center space-x-2">
           <button 
@@ -388,14 +388,30 @@ const CanvasEditor = React.memo(({
             }}
           />
           
-          {/* Grade guia (opcional) */}
+          {/* Grade guia (opcional) - Aprimorada com grid 3x3 */}
           {showGrid && !isPreviewMode && (
             <div className="absolute inset-0 pointer-events-none">
-              {/* Linhas horizontais */}
-              <div className="absolute left-0 top-1/2 w-full h-px bg-blue-400 bg-opacity-50" />
+              {/* Linhas horizontais - agora com 3 linhas */}
+              {[...Array(3)].map((_, i) => (
+                <div 
+                  key={`h-${i}`} 
+                  className="absolute w-full h-px bg-blue-400 opacity-15" 
+                  style={{ top: `${(i + 1) * 25}%` }} 
+                />
+              ))}
               
-              {/* Linhas verticais */}
-              <div className="absolute top-0 left-1/2 h-full w-px bg-blue-400 bg-opacity-50" />
+              {/* Linhas verticais - agora com 3 linhas */}
+              {[...Array(3)].map((_, i) => (
+                <div 
+                  key={`v-${i}`} 
+                  className="absolute h-full w-px bg-blue-400 opacity-15" 
+                  style={{ left: `${(i + 1) * 25}%` }} 
+                />
+              ))}
+              
+              {/* Linhas principais centrais com destaque */}
+              <div className="absolute left-0 top-1/2 w-full h-px bg-blue-400 bg-opacity-30" />
+              <div className="absolute top-0 left-1/2 h-full w-px bg-blue-400 bg-opacity-30" />
               
               {/* Margem de segurança (10% de cada lado) */}
               <div 
@@ -418,35 +434,30 @@ const CanvasEditor = React.memo(({
                 x: element.position?.x || 0,
                 y: element.position?.y || 0,
                 width: element.size?.width || 100,
-                height: element.size?.height || (element.type === 'image' ? 200 : 'auto')
+                height: element.type === 'image' 
+                  ? element.size?.height || 100 
+                  : element.size?.height === 'auto' ? 'auto' : element.size?.height || 'auto'
               }}
               position={{ x: element.position?.x || 0, y: element.position?.y || 0 }}
               size={{ 
                 width: element.size?.width || 100, 
                 height: element.type === 'image' 
-                  ? (element.size?.height || 200) 
-                  : (element.size?.height === 'auto' ? 'auto' : (element.size?.height || 'auto'))
+                  ? element.size?.height || 100 
+                  : element.size?.height === 'auto' ? 'auto' : element.size?.height || 'auto'
               }}
               onDragStop={(e, d) => {
-                !isPreviewMode && handlePositionChange(element.id, { x: d.x, y: d.y });
+                handlePositionChange(element.id, { x: d.x, y: d.y });
               }}
               onResizeStop={(e, direction, ref, delta, position) => {
-                if (isPreviewMode) return;
-                
-                handleSizeChange(
-                  element.id, 
-                  { 
-                    width: parseInt(ref.style.width), 
-                    height: element.type === 'image'
-                      ? parseInt(ref.style.height)
-                      : (ref.style.height === 'auto' ? 'auto' : parseInt(ref.style.height))
-                  }
-                );
+                handleSizeChange(element.id, {
+                  width: ref.offsetWidth,
+                  height: ref.offsetHeight
+                });
                 handlePositionChange(element.id, position);
               }}
               onClick={(e) => {
                 e.stopPropagation();
-                !isPreviewMode && setSelectedElement && setSelectedElement(element.id);
+                !isPreviewMode && setSelectedElement(element.id);
               }}
               onDoubleClick={(e) => {
                 e.stopPropagation();
@@ -455,7 +466,9 @@ const CanvasEditor = React.memo(({
               enableResizing={!isPreviewMode}
               disableDragging={isPreviewMode}
               className={`${
-                selectedElement === element.id && !isPreviewMode ? 'ring-2 ring-blue-500' : ''
+                selectedElement === element.id && !isPreviewMode 
+                  ? 'ring-2 ring-blue-500 shadow-md border border-blue-300' 
+                  : 'hover:ring-1 hover:ring-blue-300'
               }`}
               style={{ 
                 zIndex: element.zIndex || 1,
@@ -467,7 +480,78 @@ const CanvasEditor = React.memo(({
                 id={`el-${element.id}`} 
                 className={`w-full h-full relative ${element.animation ? `animate__animated ${element.animation}` : ''}`}
               >
-                {/* Text element */}
+                {/* Controles inline quando o elemento está selecionado - VERSÃO SIMPLIFICADA */}
+                {selectedElement === element.id && !isPreviewMode && (
+                  <div className="absolute -top-8 right-0 flex space-x-1 z-50 bg-white/90 rounded-full p-1 shadow-sm">
+                    <button 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onDuplicateElement(element.id);
+                      }} 
+                      title="Duplicar"
+                      className="p-1 rounded-full hover:bg-blue-100"
+                    >
+                      <FiCopy className="text-blue-600 hover:text-blue-800" size={14} />
+                    </button>
+                    
+                    <button 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onMoveForward(element.id);
+                      }} 
+                      title="Trazer para frente"
+                      className="p-1 rounded-full hover:bg-blue-100"
+                    >
+                      <FiChevronUp className="text-blue-600 hover:text-blue-800" size={14} />
+                    </button>
+                    
+                    <button 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onMoveBackward(element.id);
+                      }} 
+                      title="Enviar para trás"
+                      className="p-1 rounded-full hover:bg-blue-100"
+                    >
+                      <FiChevronDown className="text-blue-600 hover:text-blue-800" size={14} />
+                    </button>
+                    
+                    <button 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onPlayAnimation(element.id, element.animation);
+                      }} 
+                      title="Testar animação"
+                      className="p-1 rounded-full hover:bg-green-100"
+                    >
+                      <FiPlay className="text-green-600 hover:text-green-800" size={14} />
+                    </button>
+                    
+                    <button 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleShowElementAudioLibrary(element.id);
+                      }} 
+                      title="Adicionar áudio"
+                      className="p-1 rounded-full hover:bg-purple-100"
+                    >
+                      <FiVolume2 className="text-purple-600 hover:text-purple-800" size={14} />
+                    </button>
+                    
+                    <button 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onRemoveElement(element.id);
+                      }} 
+                      title="Remover"
+                      className="p-1 rounded-full hover:bg-red-100"
+                    >
+                      <FiTrash2 className="text-red-500 hover:text-red-700" size={14} />
+                    </button>
+                  </div>
+                )}
+
+                {/* Text element - Aprimorado com estilos modernos */}
                 {element.type === 'text' && (
                   <div
                     id={`el-${element.id}`}
@@ -481,11 +565,13 @@ const CanvasEditor = React.memo(({
                       borderRadius: '8px',
                       ...(element.textStyle === 'speech' && {
                         borderRadius: '8px',
-                        padding: '12px'
+                        padding: '12px',
+                        boxShadow: '0 2px 10px rgba(0, 0, 0, 0.08)'
                       }),
                       ...(element.textStyle === 'thought' && {
                         borderRadius: '50%',
-                        padding: '12px'
+                        padding: '12px',
+                        boxShadow: '0 2px 10px rgba(0, 0, 0, 0.08)'
                       })
                     }}
                     onClick={(e) => {
@@ -506,13 +592,15 @@ const CanvasEditor = React.memo(({
                             handleFinishEditingText();
                           }
                         }}
-                        className="w-full h-full p-0 m-0 border-none focus:outline-none focus:ring-0 resize-none bg-transparent"
+                        className="w-full h-full resize-none focus:outline-none focus:ring-1 focus:ring-blue-400"
                         style={{
                           fontFamily: 'inherit',
                           fontSize: 'inherit',
                           color: 'inherit',
                           lineHeight: 'inherit',
-                          textAlign: 'inherit'
+                          textAlign: 'inherit',
+                          background: 'transparent',
+                          border: 'none'
                         }}
                         placeholder="Digite seu texto aqui"
                         autoFocus
@@ -521,26 +609,26 @@ const CanvasEditor = React.memo(({
                       element.content
                     )}
                     {element.textStyle === 'speech' && !editingText && (
-                      <div className="absolute -bottom-4 -left-2 w-4 h-4 bg-white rotate-45 border-b-2 border-r-2 border-gray-300"></div>
+                      <div className="absolute -bottom-4 -left-2 w-4 h-4 bg-white rotate-45 border-b-2 border-r-2 border-gray-300 shadow-sm"></div>
                     )}
                     {element.textStyle === 'thought' && !editingText && (
                       <div className="absolute -bottom-2 -left-2 flex">
-                        <div className="w-3 h-3 bg-white rounded-full border border-gray-300"></div>
-                        <div className="w-2 h-2 bg-white rounded-full border border-gray-300 -ml-1 mt-1"></div>
+                        <div className="w-3 h-3 bg-white rounded-full border border-gray-300 shadow-sm"></div>
+                        <div className="w-2 h-2 bg-white rounded-full border border-gray-300 -ml-1 mt-1 shadow-sm"></div>
                       </div>
                     )}
                   </div>
                 )}
                 
-                {/* Image element */}
+                {/* Image element - Aprimorado com estilo moderno */}
                 {element.type === 'image' && (
                   <div className="w-full h-full p-1">
-                    <div className="w-full h-full bg-white rounded overflow-hidden">
+                    <div className="w-full h-full rounded overflow-hidden">
                       <img 
                         src={element.content} 
                         alt="Content"
-                        className={`w-full h-full object-contain transition-transform duration-200 ease-in-out ${
-                          selectedElement === element.id ? 'border-blue-500 shadow-lg border' : ''
+                        className={`w-full h-full ${
+                          selectedElement === element.id ? 'ring-2 ring-blue-400 shadow-md' : ''
                         }`}
                         style={{ 
                           pointerEvents: 'none',
@@ -549,37 +637,44 @@ const CanvasEditor = React.memo(({
                             scaleX(${element.flipH ? -1 : 1})
                             scaleY(${element.flipV ? -1 : 1})
                           `,
-                          borderRadius: element.imageStyle?.borderRadius || 0,
-                          border: element.imageStyle?.border || 'none',
-                          boxShadow: element.imageStyle?.shadow || 'none',
-                          objectFit: element.imageStyle?.objectFit || 'contain'
+                          borderRadius: element.imageStyle?.borderRadius || '8px',
+                          border: element.imageStyle?.border || '1px solid #e5e7eb',
+                          boxShadow: element.imageStyle?.shadow || '0 2px 8px rgba(0, 0, 0, 0.1)',
+                          objectFit: element.imageStyle?.objectFit || 'contain',
+                          backgroundColor: 'transparent'
                         }}
                       />
                     </div>
                   </div>
                 )}
                 
-                {/* Audio element */}
+                {/* Audio element - Estilização aprimorada */}
                 {element.type === 'audio' && (
-                  <audio 
-                    controls 
-                    src={element.content} 
-                    className="w-full h-full" 
-                    onClick={(e) => e.stopPropagation()}
-                  />
-                )}
-
-                {/* Audio player if element has audio - show always */}
-                {element.audio && (
-                  <div 
-                    className="absolute top-0 right-0 bg-white bg-opacity-80 p-1 rounded-bl z-10"
-                    onClick={(e) => e.stopPropagation()}
-                  >
+                  <div className="w-full h-full bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-2 border border-blue-100 flex flex-col justify-center">
+                    <div className="text-center text-xs text-blue-500 mb-1">Áudio</div>
                     <audio 
                       controls 
-                      src={element.audio} 
-                      className="h-6 w-24" 
+                      src={element.content} 
+                      className="w-full" 
+                      onClick={(e) => e.stopPropagation()}
                     />
+                  </div>
+                )}
+
+                {/* Audio player if element has audio - show always - Estilização aprimorada */}
+                {element.audio && (
+                  <div 
+                    className="absolute top-0 right-0 bg-white/90 p-1 rounded-bl z-10 shadow-sm border border-blue-100"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className="flex items-center gap-1">
+                      <div className="text-xs text-blue-500">🔊</div>
+                      <audio 
+                        controls 
+                        src={element.audio} 
+                        className="h-6 w-24" 
+                      />
+                    </div>
                   </div>
                 )}
               </div>
@@ -588,9 +683,9 @@ const CanvasEditor = React.memo(({
         </div>
       </div>
       
-      {/* Modal de visualização em tamanho real */}
+      {/* Modal de visualização em tamanho real - Aprimorado */}
       {showRealSizePreview && (
-        <div className="fixed inset-0 z-50 bg-black bg-opacity-80 flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-black bg-opacity-90 flex items-center justify-center p-4">
           <div className="relative bg-white rounded-lg shadow-2xl overflow-hidden" style={{
             width: `${CANVAS_WIDTH}px`,
             height: `${CANVAS_HEIGHT}px`,
@@ -601,12 +696,17 @@ const CanvasEditor = React.memo(({
             <div className="absolute top-0 right-0 p-2 z-10">
               <button 
                 onClick={toggleRealSizePreview}
-                className="bg-white rounded-full p-2 shadow-lg hover:bg-gray-100"
+                className="bg-white rounded-full p-2 shadow-lg hover:bg-gray-100 transition-colors"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
+            </div>
+            
+            {/* Indicador de etapas */}
+            <div className="absolute top-2 left-1/2 transform -translate-x-1/2 bg-black/70 text-white px-3 py-1 rounded-full text-sm font-medium">
+              Etapa {currentStep + 1} de {Math.max(...visibleElements.map(el => el.step || 0), 0) + 1}
             </div>
             
             {/* Adicionar indicador de orientação landscape */}
@@ -648,22 +748,24 @@ const CanvasEditor = React.memo(({
                         borderRadius: '8px',
                         ...(element.textStyle === 'speech' && {
                           borderRadius: '8px',
-                          padding: '12px'
+                          padding: '12px',
+                          boxShadow: '0 2px 10px rgba(0, 0, 0, 0.08)'
                         }),
                         ...(element.textStyle === 'thought' && {
                           borderRadius: '50%',
-                          padding: '12px'
+                          padding: '12px',
+                          boxShadow: '0 2px 10px rgba(0, 0, 0, 0.08)'
                         })
                       }}
                     >
                       {element.content}
                       {element.textStyle === 'speech' && (
-                        <div className="absolute -bottom-4 -left-2 w-4 h-4 bg-white rotate-45 border-b-2 border-r-2 border-gray-300"></div>
+                        <div className="absolute -bottom-4 -left-2 w-4 h-4 bg-white rotate-45 border-b-2 border-r-2 border-gray-300 shadow-sm"></div>
                       )}
                       {element.textStyle === 'thought' && (
                         <div className="absolute -bottom-2 -left-2 flex">
-                          <div className="w-3 h-3 bg-white rounded-full border border-gray-300"></div>
-                          <div className="w-2 h-2 bg-white rounded-full border border-gray-300 -ml-1 mt-1"></div>
+                          <div className="w-3 h-3 bg-white rounded-full border border-gray-300 shadow-sm"></div>
+                          <div className="w-2 h-2 bg-white rounded-full border border-gray-300 -ml-1 mt-1 shadow-sm"></div>
                         </div>
                       )}
                     </div>
