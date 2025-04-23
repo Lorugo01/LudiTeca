@@ -57,6 +57,7 @@ export default function EditBook() {
   
   // Add tabs state
   const [currentTab, setCurrentTab] = useState('pages');
+  const [jsonSize, setJsonSize] = useState(0);
   
   // Add states for book details
   const [title, setTitle] = useState('');
@@ -75,6 +76,11 @@ export default function EditBook() {
   // Add state for Media Library
   const [showMediaLibrary, setShowMediaLibrary] = useState(false);
   const [mediaSelectionType, setMediaSelectionType] = useState(null);
+
+  // Add history state
+  const [history, setHistory] = useState([]);
+  const [historyIndex, setHistoryIndex] = useState(-1);
+  const [clipboard, setClipboard] = useState(null);
 
   // Verificar autenticação
   useEffect(() => {
@@ -708,6 +714,154 @@ export default function EditBook() {
     }
   }, []);
 
+  // Função para calcular o tamanho do JSON
+  const calculateJsonSize = useCallback(() => {
+    const bookData = {
+      ...book,
+      title,
+      author_id: authorId,
+      description,
+      cover_image: coverImage,
+      category_id: categoryId,
+      pages: deepClone(pages)
+    };
+    
+    const size = new Blob([JSON.stringify(bookData)]).size;
+    setJsonSize(size);
+  }, [book, title, authorId, description, coverImage, categoryId, pages]);
+
+  // Atualizar o tamanho quando houver mudanças
+  useEffect(() => {
+    calculateJsonSize();
+  }, [calculateJsonSize]);
+
+  // Função para salvar estado no histórico
+  const saveToHistory = useCallback((newPages) => {
+    const newHistory = history.slice(0, historyIndex + 1);
+    newHistory.push(deepClone(newPages));
+    setHistory(newHistory);
+    setHistoryIndex(newHistory.length - 1);
+  }, [history, historyIndex]);
+
+  // Função para desfazer (Ctrl+Z)
+  const handleUndo = useCallback((e) => {
+    if (e.ctrlKey && e.key === 'z') {
+      e.preventDefault();
+      if (historyIndex > 0) {
+        const newIndex = historyIndex - 1;
+        setHistoryIndex(newIndex);
+        setPages(deepClone(history[newIndex]));
+        setIsModified(true);
+      }
+    }
+  }, [history, historyIndex]);
+
+  // Função para refazer (Ctrl+Y)
+  const handleRedo = useCallback((e) => {
+    if (e.ctrlKey && e.key === 'y') {
+      e.preventDefault();
+      if (historyIndex < history.length - 1) {
+        const newIndex = historyIndex + 1;
+        setHistoryIndex(newIndex);
+        setPages(deepClone(history[newIndex]));
+        setIsModified(true);
+      }
+    }
+  }, [history, historyIndex]);
+
+  // Função para copiar (Ctrl+C)
+  const handleCopy = useCallback((e) => {
+    if (e.ctrlKey && e.key === 'c' && selectedElement) {
+      e.preventDefault();
+      const element = pages[currentPage].elements.find(el => el.id === selectedElement);
+      if (element) {
+        setClipboard(deepClone(element));
+      }
+    }
+  }, [selectedElement, pages, currentPage]);
+
+  // Função para colar (Ctrl+V)
+  const handlePaste = useCallback((e) => {
+    if (e.ctrlKey && e.key === 'v' && clipboard) {
+      e.preventDefault();
+      const newElement = {
+        ...deepClone(clipboard),
+        id: Date.now().toString(),
+        position: {
+          x: clipboard.position.x + 20,
+          y: clipboard.position.y + 20
+        }
+      };
+      
+      setPages(prev => {
+        const updated = deepClone(prev);
+        updated[currentPage].elements.push(newElement);
+        return updated;
+      });
+      
+      setSelectedElement(newElement.id);
+      setIsModified(true);
+    }
+  }, [clipboard, currentPage]);
+
+  // Função para recortar (Ctrl+X)
+  const handleCut = useCallback((e) => {
+    if (e.ctrlKey && e.key === 'x' && selectedElement) {
+      e.preventDefault();
+      const element = pages[currentPage].elements.find(el => el.id === selectedElement);
+      if (element) {
+        setClipboard(deepClone(element));
+        setPages(prev => {
+          const updated = deepClone(prev);
+          updated[currentPage].elements = updated[currentPage].elements.filter(el => el.id !== selectedElement);
+          return updated;
+        });
+        setSelectedElement(null);
+        setIsModified(true);
+      }
+    }
+  }, [selectedElement, pages, currentPage]);
+
+  // Função para deletar (Delete)
+  const handleDelete = useCallback((e) => {
+    if (e.key === 'Delete' && selectedElement) {
+      e.preventDefault();
+      setPages(prev => {
+        const updated = deepClone(prev);
+        updated[currentPage].elements = updated[currentPage].elements.filter(el => el.id !== selectedElement);
+        return updated;
+      });
+      setSelectedElement(null);
+      setIsModified(true);
+    }
+  }, [selectedElement, currentPage]);
+
+  // Adicionar event listeners para atalhos de teclado
+  useEffect(() => {
+    window.addEventListener('keydown', handleUndo);
+    window.addEventListener('keydown', handleRedo);
+    window.addEventListener('keydown', handleCopy);
+    window.addEventListener('keydown', handlePaste);
+    window.addEventListener('keydown', handleCut);
+    window.addEventListener('keydown', handleDelete);
+
+    return () => {
+      window.removeEventListener('keydown', handleUndo);
+      window.removeEventListener('keydown', handleRedo);
+      window.removeEventListener('keydown', handleCopy);
+      window.removeEventListener('keydown', handlePaste);
+      window.removeEventListener('keydown', handleCut);
+      window.removeEventListener('keydown', handleDelete);
+    };
+  }, [handleUndo, handleRedo, handleCopy, handlePaste, handleCut, handleDelete]);
+
+  // Atualizar histórico quando houver mudanças nas páginas
+  useEffect(() => {
+    if (pages.length > 0 && !savingRef.current) {
+      saveToHistory(pages);
+    }
+  }, [pages, saveToHistory]);
+
   if (loading) {
     return (
       <EditorLayout>
@@ -764,6 +918,35 @@ export default function EditBook() {
               Editor de Páginas
             </div>
           </button>
+        </div>
+        
+        {/* Contador de tamanho do JSON */}
+        <div className="mb-4 p-2 bg-gray-100 rounded-lg">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-medium">Tamanho do arquivo JSON:</span>
+            <div className="flex items-center">
+              <span className={`text-sm font-medium ${
+                jsonSize > 1000000 ? 'text-red-600' : 
+                jsonSize > 500000 ? 'text-yellow-600' : 
+                'text-green-600'
+              }`}>
+                {Math.round(jsonSize/1024/1024*100)/100}MB
+              </span>
+              <span className="text-xs text-gray-500 ml-2">
+                (Limite: 1MB)
+              </span>
+            </div>
+          </div>
+          <div className="w-full bg-gray-200 rounded-full h-2 mt-2">
+            <div 
+              className={`h-2 rounded-full ${
+                jsonSize > 1000000 ? 'bg-red-600' : 
+                jsonSize > 500000 ? 'bg-yellow-600' : 
+                'bg-green-600'
+              }`}
+              style={{ width: `${Math.min((jsonSize/1000000)*100, 100)}%` }}
+            ></div>
+          </div>
         </div>
         
         {/* Book Details Tab */}

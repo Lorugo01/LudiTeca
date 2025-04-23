@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { createClient } from '@supabase/supabase-js';
-import { FiFolder, FiImage, FiMusic, FiVideo, FiFile, FiFilePlus, FiTrash2, FiArrowLeft, FiSearch, FiUpload, FiPlusCircle } from 'react-icons/fi';
+import { FiFolder, FiImage, FiMusic, FiVideo, FiFile, FiFilePlus, FiTrash2, FiArrowLeft, FiSearch, FiUpload, FiPlusCircle, FiMove } from 'react-icons/fi';
 
 // Initialize Supabase client
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -29,6 +29,9 @@ const MediaLibrary = ({ onSelect, mediaType = 'image' }) => {
   const [newFolderName, setNewFolderName] = useState('');
   const [selectedFile, setSelectedFile] = useState(null);
   const [uploadProgress, setUploadProgress] = useState({});
+  const [showMoveDialog, setShowMoveDialog] = useState(false);
+  const [targetFolder, setTargetFolder] = useState('');
+  const [availableFolders, setAvailableFolders] = useState([]);
   
   // Determine which bucket to use based on media type
   const bucketName = BUCKET_MAP[mediaType] || 'covers';
@@ -376,6 +379,79 @@ const MediaLibrary = ({ onSelect, mediaType = 'image' }) => {
     }
   };
 
+  // Função para carregar todas as pastas disponíveis
+  const loadAvailableFolders = async () => {
+    try {
+      const { data, error } = await supabase
+        .storage
+        .from(bucketName)
+        .list('', {
+          sortBy: { column: 'name', order: 'asc' },
+        });
+
+      if (error) throw error;
+
+      const folders = data
+        .filter(item => item.id === null)
+        .map(folder => ({
+          name: folder.name,
+          path: folder.name
+        }));
+
+      setAvailableFolders(folders);
+    } catch (err) {
+      console.error('Erro ao carregar pastas:', err);
+      setError(`Falha ao carregar pastas: ${err.message}`);
+    }
+  };
+
+  // Função para mover arquivo
+  const handleMoveFile = async () => {
+    if (!selectedFile || !targetFolder) return;
+
+    try {
+      setLoading(true);
+      setError(null);
+
+      const file = files.find(f => f.id === selectedFile);
+      if (!file) throw new Error('Arquivo não encontrado');
+
+      const newPath = targetFolder ? `${targetFolder}/${file.name}` : file.name;
+
+      // Copiar arquivo para nova localização
+      const { error: copyError } = await supabase
+        .storage
+        .from(bucketName)
+        .copy(file.path, newPath);
+
+      if (copyError) throw copyError;
+
+      // Remover arquivo da localização original
+      const { error: removeError } = await supabase
+        .storage
+        .from(bucketName)
+        .remove([file.path]);
+
+      if (removeError) throw removeError;
+
+      setShowMoveDialog(false);
+      setTargetFolder('');
+      loadFiles();
+    } catch (err) {
+      console.error('Erro ao mover arquivo:', err);
+      setError(`Falha ao mover arquivo: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Carregar pastas quando o diálogo de movimentação é aberto
+  useEffect(() => {
+    if (showMoveDialog) {
+      loadAvailableFolders();
+    }
+  }, [showMoveDialog]);
+
   return (
     <div className="p-4 bg-white rounded-lg shadow max-h-[80vh] overflow-y-auto">
       <div className="flex justify-between items-center mb-4">
@@ -641,11 +717,60 @@ const MediaLibrary = ({ onSelect, mediaType = 'image' }) => {
                   <FiTrash2 className="mr-2" /> Excluir
                 </button>
                 <button 
+                  onClick={() => setShowMoveDialog(true)}
+                  className="bg-yellow-600 text-white px-4 py-2 rounded shadow-lg hover:bg-yellow-700 transition-colors flex items-center"
+                >
+                  <FiMove className="mr-2" /> Mover
+                </button>
+                <button 
                   onClick={handleConfirmSelection}
                   className="bg-blue-600 text-white px-4 py-2 rounded shadow-lg hover:bg-blue-700 transition-colors"
                 >
                   Confirmar seleção
                 </button>
+              </div>
+            </div>
+          )}
+
+          {/* Diálogo de movimentação */}
+          {showMoveDialog && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+              <div className="bg-white rounded-lg p-6 w-96">
+                <h3 className="text-lg font-medium mb-4">Mover Arquivo</h3>
+                <div className="mb-4">
+                  <label className="block text-sm font-medium mb-2">
+                    Pasta de Destino
+                  </label>
+                  <select
+                    value={targetFolder}
+                    onChange={(e) => setTargetFolder(e.target.value)}
+                    className="w-full border border-gray-300 rounded px-3 py-2"
+                  >
+                    <option value="">Raiz</option>
+                    {availableFolders.map(folder => (
+                      <option key={folder.path} value={folder.path}>
+                        {folder.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex justify-end space-x-2">
+                  <button
+                    onClick={() => {
+                      setShowMoveDialog(false);
+                      setTargetFolder('');
+                    }}
+                    className="px-4 py-2 border border-gray-300 rounded hover:bg-gray-100"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={handleMoveFile}
+                    className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+                  >
+                    Mover
+                  </button>
+                </div>
               </div>
             </div>
           )}
