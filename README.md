@@ -1,130 +1,162 @@
 # UniverseTeca CMS
 
-Sistema de Gerenciamento de Conteúdo para a Biblioteca Digital UniverseTeca.
+O UniverseTeca CMS é um sistema de gerenciamento de conteúdo especializado para criação de livros interativos digitais.
 
-## Estrutura de Páginas
+## 🎨 Editor Visual
 
-### 1. Autenticação e Navegação
-- **Página Inicial** (`/`)
-  - Redirecionamento automático baseado no estado de autenticação
-  - Usuários autenticados são direcionados para `/books`
-  - Usuários não autenticados são direcionados para `/login`
+O editor visual do UniverseTeca foi projetado para oferecer uma experiência intuitiva na criação de conteúdo interativo.
 
-- **Login** (`/login`)
-  - Formulário de autenticação com email e senha
-  - Integração com Supabase para autenticação
-  - Feedback visual para erros e sucesso
-  - Redirecionamento após login bem-sucedido
+### Área de Trabalho
 
-### 2. Gerenciamento de Perfil
-- **Perfil do Usuário** (`/profile`)
-  - Edição de informações pessoais
-  - Upload e gerenciamento de foto de perfil
-  - Alteração de senha com validações de segurança
-  - Integração com Supabase para atualização de dados
+O editor possui duas áreas principais:
 
-### 3. Gerenciamento de Autores
-- **Lista de Autores** (`/authors`)
-  - Visualização em grid de todos os autores
-  - Busca por nome
-  - Ações rápidas (editar, excluir)
-  - Criação de novo autor
+- **Área Total do Canvas**: 1024x768 pixels
+- **Área Visível no App**: 800x600 pixels (demarcada em vermelho)
 
-- **Novo Autor** (`/authors/new`)
-  - Formulário para cadastro de autor
-  - Upload de foto do autor
-  - Campos para biografia e informações adicionais
+A área maior permite flexibilidade na edição, enquanto a demarcação vermelha indica o que será visível no app final.
 
-- **Edição de Autor** (`/authors/[id]`)
-  - Edição de informações do autor
-  - Gerenciamento de foto
-  - Visualização de livros associados
+### Funcionalidades Principais
 
-### 4. Gerenciamento de Categorias
-- **Lista de Categorias** (`/categories`)
-  - Visualização em grid de todas as categorias
-  - Busca por nome
-  - Ações rápidas (editar, excluir)
-  - Criação de nova categoria
+#### 📝 Elementos de Texto
+- Diferentes estilos de texto:
+  - Texto Normal
+  - Narrativa
+  - Balão de Fala
+  - Pensamento
+- Edição direta no canvas
+- Animações personalizáveis
 
-- **Nova Categoria** (`/categories/new`)
-  - Formulário para cadastro de categoria
-  - Upload de ícone
-  - Campos para descrição e informações adicionais
+#### 🖼️ Elementos de Imagem
+- Upload e gerenciamento de imagens
+- Redimensionamento e rotação
+- Ajustes de escala e posição
+- Efeitos de borda e sombra
 
-- **Edição de Categoria** (`/categories/[id]`)
-  - Edição de informações da categoria
-  - Gerenciamento de ícone
-  - Visualização de livros associados
+#### 🎵 Elementos de Áudio
+- Suporte para narração e efeitos sonoros
+- Biblioteca de áudio integrada
+- Controles de reprodução
 
-### 5. Gerenciamento de Livros
-- **Lista de Livros** (`/books`)
-  - Visualização em grid de todos os livros
-  - Busca por título, autor ou descrição
-  - Filtros por categoria
-  - Ações rápidas (editar, excluir)
-  - Criação de novo livro
+#### 🎬 Animações
+- Biblioteca de animações pré-definidas:
+  - Fade In/Out
+  - Slide
+  - Zoom
+  - Bounce
+  - E muito mais
 
-- **Novo Livro** (`/books/new`)
-  - Formulário para cadastro de livro
-  - Seleção de autor e categoria
-  - Upload de capa
-  - Campos para título e descrição
-  - Criação da primeira página
+#### 📋 Gerenciamento de Camadas
+- Controle de Z-index
+- Mover para frente/trás
+- Duplicação de elementos
+- Exclusão de elementos
 
-- **Edição de Livro** (`/books/[id]/edit`)
-  - Edição completa do livro
-  - Gerenciamento de páginas
-  - Upload e gerenciamento de mídias
-  - Salvamento automático
-  - Preview em tempo real
+### 🛠️ Ferramentas de Edição
 
-## Recursos Técnicos
+#### Grade de Alinhamento
+- Grade 3x3 para composição
+- Linhas guia centrais
+- Margem de segurança (10%)
 
-### Autenticação e Segurança
-- Integração com Supabase para autenticação
-- Proteção de rotas
-- Gerenciamento de sessão
-- Validações de segurança
+#### Background
+- Suporte para imagens de fundo
+- Controles de escala e posição
+- Ajuste de opacidade
 
-### Interface do Usuário
-- Design responsivo com Tailwind CSS
-- Feedback visual para ações
-- Loading states
-- Mensagens de erro e sucesso
-- Ícones intuitivos
+#### Modo de Visualização
+- Preview em tempo real
+- Visualização em tamanho real
+- Indicador de área visível
 
-### Gerenciamento de Mídia
-- Upload de imagens
-- Gerenciamento de arquivos
-- Preview de mídias
-- Organização em pastas
+### 📱 Responsividade
 
-### Performance
-- Carregamento otimizado
-- Paginação de listas
-- Cache de dados
-- Salvamento automático
+O editor adapta-se automaticamente ao tamanho da tela, mantendo as proporções corretas e a área de trabalho visível.
 
-## Requisitos do Sistema
+### ⚡ Atalhos de Teclado
 
-- Node.js 14.x ou superior
-- Navegador moderno (Chrome, Firefox, Edge)
-- Conexão com internet (para autenticação com Supabase)
+- `Ctrl + Z`: Desfazer
+- `Ctrl + Y`: Refazer
+- `Ctrl + C`: Copiar elemento
+- `Ctrl + V`: Colar elemento
+- `Ctrl + X`: Recortar elemento
+- `Delete`: Excluir elemento
 
-## Inicialização
+### 🎯 Linha do Tempo
 
-1. Clone o repositório
-2. Instale as dependências: `npm install`
-3. Configure as variáveis de ambiente
-4. Inicie o servidor: `npm run dev`
-5. Acesse: `http://localhost:3000`
+- Controle de etapas de animação
+- Sequenciamento de elementos
+- Controles de reprodução
+- Preview de animações
 
-## Suporte
+## 🔧 Configuração Técnica
 
-Em caso de problemas:
-1. Verifique se o Node.js está instalado corretamente
-2. Confirme que as variáveis de ambiente estão configuradas
-3. Verifique a conexão com internet
+### Requisitos do Sistema
 
-Para mais informações ou ajuda, contate o suporte técnico. 
+- Node.js (versão recomendada: 14+)
+- Next.js 14.2.28
+- React 18+
+
+### Instalação
+
+```bash
+# Instalar dependências
+npm install
+
+# Iniciar em modo desenvolvimento
+npm run dev
+
+# Construir para produção
+npm run build
+```
+
+### Estrutura de Arquivos
+
+```
+universeteca-cms/
+├── components/
+│   └── editor/
+│       ├── CanvasEditor.js    # Editor principal
+│       ├── MediaLibrary.js    # Biblioteca de mídia
+│       └── Timeline.js        # Controle de timeline
+├── pages/
+│   └── books/
+│       └── [id]/
+│           └── edit.js        # Página de edição
+└── README.md
+```
+
+## 📚 Guia de Uso
+
+1. **Criar Novo Livro**
+   - Acesse a página de livros
+   - Clique em "Novo Livro"
+   - Configure os detalhes básicos
+
+2. **Editar Páginas**
+   - Use a barra de ferramentas superior
+   - Adicione elementos arrastando para o canvas
+   - Configure propriedades no painel lateral
+
+3. **Gerenciar Mídia**
+   - Acesse a biblioteca de mídia
+   - Faça upload de arquivos
+   - Organize em categorias
+
+4. **Publicar**
+   - Revise o conteúdo
+   - Verifique animações
+   - Publique para visualização
+
+## 🤝 Contribuição
+
+Para contribuir com o projeto:
+
+1. Faça um Fork
+2. Crie uma branch (`git checkout -b feature/nova-funcionalidade`)
+3. Commit suas mudanças (`git commit -m 'Adiciona nova funcionalidade'`)
+4. Push para a branch (`git push origin feature/nova-funcionalidade`)
+5. Abra um Pull Request
+
+## 📄 Licença
+
+Este projeto está sob a licença [MIT](LICENSE). 

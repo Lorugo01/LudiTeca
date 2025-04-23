@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/router';
 import Head from 'next/head';
 import Link from 'next/link';
-import { FiChevronLeft, FiSave, FiPlus, FiTrash2, FiRefreshCw, FiMove, FiPlay, FiChevronUp, FiChevronDown, FiCopy, FiType, FiImage, FiMusic, FiEye, FiEyeOff, FiChevronRight, FiBook, FiEdit } from 'react-icons/fi';
+import { FiChevronLeft, FiSave, FiPlus, FiTrash2, FiRefreshCw, FiMove, FiPlay, FiChevronUp, FiChevronDown, FiCopy, FiType, FiImage, FiMusic, FiEye, FiEyeOff, FiChevronRight, FiBook, FiEdit, FiX } from 'react-icons/fi';
 
 import { useAuth } from '../../../contexts/auth';
 import { getBook, updateBook } from '../../../lib/books';
@@ -11,8 +11,8 @@ import { getCategories } from '../../../lib/categories';
 import CanvasEditor from '../../../components/editor/CanvasEditor';
 import EditorLayout from '../../../components/EditorLayout';
 import MediaLibrary from '../../../components/editor/MediaLibrary';
-import TimelineEditor from '../../../components/editor/TimelineEditor';
-
+import Timeline from '../../../components/editor/Timeline';
+import { CANVAS_WIDTH, CANVAS_HEIGHT } from '../../../components/editor/CanvasEditor';
 
 // Deep clone utility to prevent reference issues
 const deepClone = (obj) => {
@@ -83,6 +83,16 @@ export default function EditBook() {
   const [history, setHistory] = useState([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
   const [clipboard, setClipboard] = useState(null);
+
+  // Adicionar estados para reprodução
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [playbackInterval, setPlaybackInterval] = useState(null);
+  const [playbackSpeed, setPlaybackSpeed] = useState(1000); // 1 segundo por etapa
+
+  // Add state for background editor
+  const [showBackgroundEditor, setShowBackgroundEditor] = useState(false);
+  const [backgroundScale, setBackgroundScale] = useState(1);
+  const [backgroundPosition, setBackgroundPosition] = useState({ x: 0.5, y: 0.5 });
 
   // Verificar autenticação
   useEffect(() => {
@@ -633,15 +643,26 @@ export default function EditBook() {
     }
     
     if (mediaSelectionType === 'background') {
-      // Update background of current page
+      // Update background of current page with new structure
       console.log("Setting background for page", currentPage, "to", url);
       setPages(prev => {
         const updated = deepClone(prev);
-        updated[currentPage].background = url;
+        updated[currentPage].background = {
+          url: url,
+          position: { x: 0.5, y: 0.5 },
+          scale: 1
+        };
         console.log("Updated page background:", updated[currentPage].background);
         return updated;
       });
       setIsModified(true);
+      setShowMediaLibrary(false);
+      return;
+    }
+    
+    if (mediaSelectionType === 'audio' && selectedElement) {
+      // Adicionar áudio ao elemento selecionado
+      handleElementChange(selectedElement, { audio: url });
       setShowMediaLibrary(false);
       return;
     }
@@ -670,30 +691,10 @@ export default function EditBook() {
       
       setSelectedElement(newElement.id);
       setIsModified(true);
-    } else if (mediaSelectionType === 'audio') {
-      const newElement = {
-        id: Date.now().toString(),
-        type: 'audio',
-        content: url,
-        position: { x: 50, y: 50 },
-        size: { width: 300, height: 50 },
-        animation: '',
-        step: 0,
-        zIndex: (pages[currentPage]?.elements?.length || 0) + 1
-      };
-      
-      setPages(prev => {
-        const updated = deepClone(prev);
-        updated[currentPage].elements = [...updated[currentPage].elements, newElement];
-        return updated;
-      });
-      
-      setSelectedElement(newElement.id);
-      setIsModified(true);
     }
     
     setShowMediaLibrary(false);
-  }, [mediaSelectionType, currentPage, pages, setSelectedElement, currentTab]);
+  }, [mediaSelectionType, currentPage, pages, setSelectedElement, currentTab, selectedElement, handleElementChange]);
   
   // Handle closing the Media Library
   const handleCloseMediaLibrary = useCallback(() => {
@@ -864,6 +865,71 @@ export default function EditBook() {
     }
   }, [pages, saveToHistory]);
 
+  // Função para controlar a reprodução
+  const handlePlayPause = useCallback(() => {
+    if (isPlaying) {
+      // Pausar reprodução
+      if (playbackInterval) {
+        clearInterval(playbackInterval);
+        setPlaybackInterval(null);
+      }
+    } else {
+      // Iniciar reprodução
+      const interval = setInterval(() => {
+        setCurrentStep(prev => {
+          const maxStep = Math.max(...pages[currentPage].elements.map(el => el.step || 0), 0);
+          if (prev >= maxStep) {
+            clearInterval(interval);
+            setPlaybackInterval(null);
+            setIsPlaying(false);
+            return 0;
+          }
+          return prev + 1;
+        });
+      }, playbackSpeed);
+      setPlaybackInterval(interval);
+    }
+    setIsPlaying(!isPlaying);
+  }, [isPlaying, playbackInterval, pages, currentPage, playbackSpeed]);
+
+  // Função para voltar uma etapa
+  const handleStepBack = useCallback(() => {
+    if (currentStep > 0) {
+      setCurrentStep(prev => prev - 1);
+    }
+  }, [currentStep]);
+
+  // Função para avançar uma etapa
+  const handleStepForward = useCallback(() => {
+    const maxStep = Math.max(...pages[currentPage].elements.map(el => el.step || 0), 0);
+    if (currentStep < maxStep) {
+      setCurrentStep(prev => prev + 1);
+    }
+  }, [currentStep, pages]);
+
+  // Função para adicionar uma etapa
+  const handleAddStep = useCallback(() => {
+    const maxStep = Math.max(...pages[currentPage].elements.map(el => el.step || 0), 0);
+    setCurrentStep(maxStep + 1);
+  }, [pages, currentPage]);
+
+  // Função para remover uma etapa
+  const handleRemoveStep = useCallback(() => {
+    const maxStep = Math.max(...pages[currentPage].elements.map(el => el.step || 0), 0);
+    if (maxStep > 0) {
+      // Remover elementos da última etapa
+      setPages(prev => {
+        const newPages = deepClone(prev);
+        newPages[currentPage].elements = newPages[currentPage].elements.filter(
+          el => el.step !== maxStep
+        );
+        return newPages;
+      });
+      setCurrentStep(maxStep - 1);
+      setIsModified(true);
+    }
+  }, [pages, currentPage]);
+
   if (loading) {
     return (
       <EditorLayout>
@@ -884,317 +950,217 @@ export default function EditBook() {
         <title>{book?.title || 'Editar Livro'} - UniverseTeca</title>
       </Head>
       
-      <div className="p-4">
-        {/* Debug info - can be removed later */}
-        {console.log("Current page background:", pages[currentPage]?.background)}
-        
-        <div className="flex justify-between items-center mb-6">
-          <h1 className="text-2xl font-bold">{title || 'Edit Book'}</h1>
-        </div>
-        
-        {/* Tabs */}
-        <div className="flex mb-6 border-b border-gray-200">
-          <button
-            onClick={() => setCurrentTab('details')}
-            className={`py-2 px-4 font-medium ${
-              currentTab === 'details' 
-                ? 'text-blue-600 border-b-2 border-blue-600' 
-                : 'text-gray-500 hover:text-gray-700'
-            }`}
-          >
-            <div className="flex items-center">
-              <FiEdit className="mr-2" />
-              Detalhes do Livro
-            </div>
-          </button>
-          <button
-            onClick={() => setCurrentTab('pages')}
-            className={`py-2 px-4 font-medium ${
-              currentTab === 'pages' 
-                ? 'text-blue-600 border-b-2 border-blue-600' 
-                : 'text-gray-500 hover:text-gray-700'
-            }`}
-          >
-            <div className="flex items-center">
-              <FiBook className="mr-2" />
-              Editor de Páginas
-            </div>
-          </button>
-        </div>
-        
-        {/* Contador de tamanho do JSON */}
-        <div className="mb-4 p-2 bg-gray-100 rounded-lg">
-          <div className="flex items-center justify-between">
-            <span className="text-sm font-medium">Tamanho do arquivo JSON:</span>
-            <div className="flex items-center">
-              <span className={`text-sm font-medium ${
-                jsonSize > 1000000 ? 'text-red-600' : 
-                jsonSize > 500000 ? 'text-yellow-600' : 
-                'text-green-600'
-              }`}>
-                {Math.round(jsonSize/1024/1024*100)/100}MB
-              </span>
-              <span className="text-xs text-gray-500 ml-2">
-                (Limite: 1MB)
-              </span>
-            </div>
-          </div>
-          <div className="w-full bg-gray-200 rounded-full h-2 mt-2">
-            <div 
-              className={`h-2 rounded-full ${
-                jsonSize > 1000000 ? 'bg-red-600' : 
-                jsonSize > 500000 ? 'bg-yellow-600' : 
-                'bg-green-600'
+      <div className="flex flex-col h-screen bg-gray-900">
+        {/* Barra superior com título e controles principais */}
+        <div className="bg-gray-800 text-white px-4 py-2 flex items-center justify-between border-b border-gray-700">
+          <div className="flex items-center space-x-4">
+            <button
+              onClick={goBack}
+              className="flex items-center text-gray-300 hover:text-white"
+            >
+              <FiChevronLeft className="mr-1" size={20} />
+              Voltar
+            </button>
+
+            <h1 className="text-xl font-semibold">{title || 'Edit Book'}</h1>
+            <button
+              onClick={saveBook}
+              disabled={saving || !isModified}
+              className={`flex items-center px-3 py-1 rounded ${
+                saving || !isModified ? 'bg-gray-700 text-gray-400' : 'bg-blue-600 hover:bg-blue-700'
               }`}
-              style={{ width: `${Math.min((jsonSize/1000000)*100, 100)}%` }}
-            ></div>
+            >
+              <FiSave className="mr-1" />
+              {saving ? 'Salvando...' : 'Salvar'}
+            </button>
           </div>
         </div>
-        
-        {/* Book Details Tab */}
-        {currentTab === 'details' && (
-          <div className="bg-white shadow-lg rounded-lg p-6 mb-6">
-            <h2 className="text-xl font-semibold mb-4">Informações do Livro</h2>
-            
-            {/* Cover Image */}
-            <div className="mb-6">
-              <label className="block text-gray-700 text-sm font-bold mb-2">
-                Capa do Livro
-              </label>
-              <div className="flex items-start">
-                <div 
-                  className="w-48 h-64 bg-gray-200 rounded border overflow-hidden flex items-center justify-center"
-                  style={{
-                    backgroundImage: coverImage ? `url(${coverImage})` : 'none',
-                    backgroundSize: 'cover',
-                    backgroundPosition: 'center'
-                  }}
-                >
-                  {!coverImage && (
-                    <div className="text-gray-500 flex flex-col items-center">
-                      <FiImage size={32} />
-                      <span className="mt-2">Sem capa</span>
-                    </div>
-                  )}
+
+        {/* Abas */}
+        <div className="bg-gray-800 text-white px-4 border-b border-gray-700">
+          <div className="flex space-x-4">
+            <button
+              onClick={() => setCurrentTab('pages')}
+              className={`py-2 px-4 ${
+                currentTab === 'pages'
+                  ? 'border-b-2 border-blue-500 text-blue-500'
+                  : 'text-gray-400 hover:text-white'
+              }`}
+            >
+              Páginas
+            </button>
+            <button
+              onClick={() => setCurrentTab('details')}
+              className={`py-2 px-4 ${
+                currentTab === 'details'
+                  ? 'border-b-2 border-blue-500 text-blue-500'
+                  : 'text-gray-400 hover:text-white'
+              }`}
+            >
+              Detalhes do Livro
+            </button>
+          </div>
+        </div>
+
+        {/* Conteúdo das abas */}
+        {currentTab === 'details' ? (
+          <div className="flex-1 bg-gray-900 p-6 overflow-auto">
+            <div className="max-w-2xl mx-auto bg-gray-800 rounded-lg p-6">
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-1">
+                    Título
+                  </label>
+                  <input
+                    type="text"
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                    className="w-full bg-gray-700 text-white border border-gray-600 rounded px-3 py-2"
+                    placeholder="Digite o título do livro"
+                  />
                 </div>
-                
-                <div className="ml-4 flex flex-col">
-                  <button
-                    onClick={() => {
-                      setMediaSelectionType('image');
-                      setShowMediaLibrary(true);
-                    }}
-                    className="flex items-center px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 mb-2"
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-1">
+                    Autor
+                  </label>
+                  <select
+                    value={authorId}
+                    onChange={(e) => setAuthorId(e.target.value)}
+                    className="w-full bg-gray-700 text-white border border-gray-600 rounded px-3 py-2"
                   >
-                    <FiImage className="mr-2" />
-                    {coverImage ? 'Alterar Capa' : 'Adicionar Capa'}
-                  </button>
-                  
-                  {coverImage && (
+                    <option value="">Selecione um autor</option>
+                    {authors.map(author => (
+                      <option key={author.id} value={author.id}>
+                        {author.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-1">
+                    Categoria
+                  </label>
+                  <select
+                    value={categoryId}
+                    onChange={(e) => setCategoryId(e.target.value)}
+                    className="w-full bg-gray-700 text-white border border-gray-600 rounded px-3 py-2"
+                  >
+                    <option value="">Selecione uma categoria</option>
+                    {categories.map(category => (
+                      <option key={category.id} value={category.id}>
+                        {category.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-1">
+                    Descrição
+                  </label>
+                  <textarea
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    className="w-full bg-gray-700 text-white border border-gray-600 rounded px-3 py-2 h-32"
+                    placeholder="Digite a descrição do livro"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-1">
+                    Capa do Livro
+                  </label>
+                  <div className="flex items-center space-x-4">
+                    <div 
+                      className="w-32 h-32 bg-gray-700 rounded flex items-center justify-center"
+                      style={{
+                        backgroundImage: coverImage ? `url(${coverImage})` : 'none',
+                        backgroundSize: 'cover',
+                        backgroundPosition: 'center'
+                      }}
+                    >
+                      {!coverImage && <FiImage size={24} className="text-gray-400" />}
+                    </div>
                     <button
                       onClick={() => {
-                        setCoverImage('');
-                        setIsModified(true);
+                        setMediaSelectionType('image');
+                        setShowMediaLibrary(true);
                       }}
-                      className="flex items-center px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600"
+                      className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
                     >
-                      <FiTrash2 className="mr-2" />
-                      Remover Capa
+                      {coverImage ? 'Alterar Capa' : 'Adicionar Capa'}
                     </button>
-                  )}
+                  </div>
                 </div>
               </div>
             </div>
-            
-            {/* Title */}
-            <div className="mb-4">
-              <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="title">
-                Título*
-              </label>
-              <input
-                id="title"
-                type="text"
-                value={title}
-                onChange={(e) => {
-                  setTitle(e.target.value);
-                  setIsModified(true);
-                }}
-                className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-                required
-              />
-            </div>
-            
-            {/* Author */}
-            <div className="mb-4">
-              <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="author">
-                Autor
-              </label>
-              <select
-                id="author"
-                value={authorId}
-                onChange={(e) => {
-                  setAuthorId(e.target.value);
-                  setIsModified(true);
-                }}
-                className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-              >
-                <option value="">Selecione um autor</option>
-                {loadingAuthors ? (
-                  <option disabled>Carregando autores...</option>
-                ) : (
-                  authors.map(author => (
-                    <option key={author.id} value={author.id}>
-                      {author.name}
-                    </option>
-                  ))
-                )}
-              </select>
-            </div>
-            
-            {/* Category */}
-            <div className="mb-4">
-              <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="category">
-                Categoria
-              </label>
-              <select
-                id="category"
-                value={categoryId}
-                onChange={(e) => {
-                  setCategoryId(e.target.value);
-                  setIsModified(true);
-                }}
-                className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-              >
-                <option value="">Selecione uma categoria</option>
-                {loadingCategories ? (
-                  <option disabled>Carregando categorias...</option>
-                ) : (
-                  categories.map(category => (
-                    <option key={category.id} value={category.id}>
-                      {category.name}
-                    </option>
-                  ))
-                )}
-              </select>
-            </div>
-            
-            {/* Description */}
-            <div className="mb-4">
-              <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="description">
-                Descrição
-              </label>
-              <textarea
-                id="description"
-                value={description}
-                onChange={(e) => {
-                  setDescription(e.target.value);
-                  setIsModified(true);
-                }}
-                className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline h-32"
-                placeholder="Descrição do livro"
-              />
-            </div>
           </div>
-        )}
-        
-        {/* Page Editor Tab */}
-        {currentTab === 'pages' && (
+        ) : (
           <>
-            {/* Page navigation */}
-            <div className="flex items-center mb-4 space-x-2">
-              <select
-                value={currentPage}
-                onChange={(e) => handlePageChange(parseInt(e.target.value))}
-                className="border border-gray-300 rounded px-3 py-2"
-              >
-                {pages.map((page, index) => (
-                  <option key={page.id} value={index}>
-                    Page {index + 1}
-                  </option>
-                ))}
-              </select>
-              
-              <button
-                onClick={addPage}
-                className="flex items-center px-3 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
-                title="Add Page"
-              >
-                <FiPlus />
-              </button>
-              
-              {pages.length > 1 && (
-                <button
-                  onClick={deletePage}
-                  className="flex items-center px-3 py-2 bg-red-500 text-white rounded hover:bg-red-600"
-                  title="Delete Page"
+            {/* Controles de página */}
+            <div className="bg-gray-800 border-b border-gray-700 p-2">
+              <div className="flex items-center space-x-2">
+                <select
+                  value={currentPage}
+                  onChange={(e) => handlePageChange(parseInt(e.target.value))}
+                  className="bg-gray-700 text-white border border-gray-600 rounded px-2 py-1"
                 >
-                  <FiTrash2 />
+                  {pages.map((page, index) => (
+                    <option key={page.id} value={index}>
+                      Página {index + 1}
+                    </option>
+                  ))}
+                </select>
+                
+                <button
+                  onClick={addPage}
+                  className="p-1 text-gray-300 hover:text-white hover:bg-gray-700 rounded"
+                  title="Adicionar página"
+                >
+                  <FiPlus size={20} />
                 </button>
-              )}
+                
+                {pages.length > 1 && (
+                  <button
+                    onClick={deletePage}
+                    className="p-1 text-gray-300 hover:text-white hover:bg-gray-700 rounded"
+                    title="Remover página"
+                  >
+                    <FiTrash2 size={20} />
+                  </button>
+                )}
 
-              <button
-                onClick={saveBook}
-                disabled={saving || !isModified}
-                className={`flex items-center px-3 py-2 ${
-                  saving || !isModified ? 'bg-gray-400' : 'bg-green-500 hover:bg-green-600'
-                } text-white rounded`}
-                title="Salvar Alterações"
-              >
-                <FiSave className="mr-1" />
-                {saving ? 'Salvando...' : 'Salvar'}
-              </button>
-              
-              {/* Ferramentas para adicionar elementos - Simplificado */}
-              <div className="flex items-center ml-4 space-x-2 border-l border-gray-300 pl-4">
-                <div className="relative group">
+                {/* Botões de elementos */}
+                <div className="flex items-center space-x-1 ml-2 border-l border-gray-600 pl-2">
                   <button
                     onClick={() => handleAddText('normal')}
-                    className="p-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+                    className="p-1 text-gray-300 hover:text-white hover:bg-gray-700 rounded"
                     title="Adicionar texto"
                   >
-                    <FiType size={18} />
+                    <FiType size={20} />
                   </button>
-                  <div className="absolute top-full left-0 mt-2 hidden group-hover:flex flex-col bg-white shadow-lg rounded p-1 border border-gray-200 z-10">
-                    {TEXT_STYLES.map(style => (
-                      <button
-                        key={style.value}
-                        onClick={() => handleAddText(style.value)}
-                        className="p-1 hover:bg-gray-100 rounded text-left text-sm whitespace-nowrap"
-                      >
-                        {style.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                
-                <button
-                  onClick={() => handleShowMediaLibrary('image')}
-                  className="p-2 bg-blue-500 text-white rounded hover:bg-blue-600"
-                  title="Adicionar imagem"
-                >
-                  <FiImage size={18} />
-                </button>
-                
-                <button
-                  onClick={() => handleShowMediaLibrary('audio')}
-                  className="p-2 bg-blue-500 text-white rounded hover:bg-blue-600"
-                  title="Adicionar áudio"
-                >
-                  <FiMusic size={18} />
-                </button>
-                
-                <button
-                  onClick={() => handleShowMediaLibrary('background')}
-                  className="p-2 bg-green-500 text-white rounded hover:bg-green-600"
-                  title="Alterar background"
-                >
-                  Background
-                </button>
-                
-                {pages[currentPage]?.background && (
+                  
+                  <button
+                    onClick={() => handleShowMediaLibrary('image')}
+                    className="p-1 text-gray-300 hover:text-white hover:bg-gray-700 rounded"
+                    title="Adicionar imagem"
+                  >
+                    <FiImage size={20} />
+                  </button>
+
+                  <button
+                    onClick={() => handleShowMediaLibrary('background')}
+                    className="p-1 text-gray-300 hover:text-white hover:bg-gray-700 rounded"
+                    title="Alterar background"
+                  >
+                    <FiImage size={20} />
+                    <span className="text-xs ml-1">BG</span>
+                  </button>
+
                   <button
                     onClick={() => {
-                      // Remove background of current page
                       setPages(prev => {
                         const updated = deepClone(prev);
                         updated[currentPage].background = '';
@@ -1202,198 +1168,320 @@ export default function EditBook() {
                       });
                       setIsModified(true);
                     }}
-                    className="p-2 bg-red-500 text-white rounded hover:bg-red-600"
+                    className="p-1 text-gray-300 hover:text-white hover:bg-gray-700 rounded"
                     title="Remover background"
                   >
-                    <FiTrash2 size={18} />
+                    <FiTrash2 size={20} />
+                    <span className="text-xs ml-1">BG</span>
                   </button>
-                )}
-              </div>
-              
-              {/* Controle de modo de visualização */}
-              <div className="flex items-center ml-4 space-x-2 border-l border-gray-300 pl-4">
-                <button
-                  onClick={togglePreviewMode}
-                  className={`p-2 ${isPreviewMode ? 'bg-red-500 hover:bg-red-600' : 'bg-purple-500 hover:bg-purple-600'} text-white rounded`}
-                  title={isPreviewMode ? "Sair da visualização" : "Visualizar animações"}
-                >
-                  {isPreviewMode ? <FiEyeOff size={18} /> : <FiEye size={18} />}
-                </button>
-                
-                {/* Navegação de etapas - visível apenas no modo de visualização */}
-                {isPreviewMode && (
-                  <div className="flex items-center space-x-2">
-                    <button
-                      onClick={() => currentStep > 0 && setCurrentStep(currentStep - 1)}
-                      disabled={currentStep === 0}
-                      className={`p-2 ${currentStep === 0 ? 'bg-gray-400' : 'bg-blue-500 hover:bg-blue-600'} text-white rounded`}
-                      title="Previous Step"
-                    >
-                      <FiChevronLeft size={18} />
-                    </button>
-                    
-                    <div className="px-2 py-1 bg-gray-100 rounded">
-                      <span className="text-sm">Etapa: {currentStep}</span>
-                    </div>
-                    
-                    <button
-                      onClick={() => {
-                        // Find the maximum step in all elements
-                        const maxStep = Math.max(...pages[currentPage].elements.map(el => el.step || 0), 0);
-                        if (currentStep < maxStep) {
-                          setCurrentStep(currentStep + 1);
-                        }
-                      }}
-                      disabled={currentStep >= Math.max(...pages[currentPage].elements.map(el => el.step || 0), 0)}
-                      className={`p-2 ${currentStep >= Math.max(...pages[currentPage].elements.map(el => el.step || 0), 0) ? 'bg-gray-400' : 'bg-blue-500 hover:bg-blue-600'} text-white rounded`}
-                      title="Next Step"
-                    >
-                      <FiChevronRight size={18} />
-                    </button>
-                  </div>
-                )}
-              </div>
-              
-              {/* Element controls */}
-              {selectedElement && !isPreviewMode && (
-                <div className="flex items-center space-x-2 ml-4 bg-white border p-2 rounded shadow">
-                  <span className="text-sm font-medium">Elemento selecionado:</span>
-                  
-                  {/* Step selector */}
-                  <div className="flex items-center bg-gray-100 px-2 py-1 rounded">
-                    <span className="text-xs mr-2">Etapa:</span>
-                    <input
-                      type="number"
-                      min="0"
-                      value={pages[currentPage].elements.find(el => el.id === selectedElement)?.step || 0}
-                      onChange={(e) => handleElementChange(selectedElement, { step: parseInt(e.target.value || 0) })}
-                      className="w-12 border border-gray-300 rounded px-1 py-0.5 text-sm"
-                    />
-                  </div>
-                  
-                  {/* Image style selectors - manter apenas os dropdowns */}
-                  {pages[currentPage].elements.find(el => el.id === selectedElement)?.type === 'image' && (
-                    <div className="flex items-center space-x-2">
-                      <select
-                        value={pages[currentPage].elements.find(el => el.id === selectedElement)?.imageStyle?.objectFit || 'contain'}
-                        onChange={(e) => handleImageStyleChange(selectedElement, { objectFit: e.target.value })}
-                        className="border border-gray-300 rounded px-2 py-1 text-sm"
-                        title="Ajuste da imagem"
-                      >
-                        <option value="contain">Conter</option>
-                        <option value="cover">Cobrir</option>
-                        <option value="fill">Preencher</option>
-                      </select>
-                      
-                      <select
-                        value="none"
-                        onChange={(e) => {
-                          if (e.target.value === "1:1") handleFitToAspectRatio(selectedElement, "1:1");
-                          if (e.target.value === "4:3") handleFitToAspectRatio(selectedElement, "4:3");
-                          if (e.target.value === "16:9") handleFitToAspectRatio(selectedElement, "16:9");
-                          if (e.target.value === "reset") handleResetImageTransform(selectedElement);
-                        }}
-                        className="border border-gray-300 rounded px-2 py-1 text-sm"
-                      >
-                        <option value="none">Proporção</option>
-                        <option value="1:1">1:1 (Quadrado)</option>
-                        <option value="4:3">4:3</option>
-                        <option value="16:9">16:9</option>
-                        <option value="reset">Resetar</option>
-                      </select>
-                    </div>
-                  )}
-                  
-                  {/* Text style selector */}
-                  {pages[currentPage].elements.find(el => el.id === selectedElement)?.type === 'text' && (
-                    <select
-                      value={pages[currentPage].elements.find(el => el.id === selectedElement)?.textStyle || 'normal'}
-                      onChange={(e) => handleTextStyleChange(selectedElement, e.target.value)}
-                      className="border border-gray-300 rounded px-2 py-1 text-sm"
-                    >
-                      {TEXT_STYLES.map(style => (
-                        <option key={style.value} value={style.value}>
-                          {style.label}
-                        </option>
-                      ))}
-                    </select>
-                  )}
-                  
-                  {/* Animation selector */}
-                  <select
-                    value={pages[currentPage].elements.find(el => el.id === selectedElement)?.animation || ''}
-                    onChange={(e) => handleAnimationChange(selectedElement, e.target.value)}
-                    className="border border-gray-300 rounded px-2 py-1 text-sm"
+
+                  <button
+                    onClick={() => {
+                      // Aqui você abriria um modal ou ativaria um editor simples
+                      setShowBackgroundEditor(true);
+                    }}
+                    className="p-1 text-gray-300 hover:text-white hover:bg-gray-700 rounded"
+                    title="Editar background"
                   >
-                    {ANIMATIONS.map(anim => (
-                      <option key={anim.value} value={anim.value}>
-                        {anim.label}
-                      </option>
-                    ))}
-                  </select>
+                    <FiEdit size={20} />
+                    <span className="text-xs ml-1">BG</span>
+                  </button>
                 </div>
-              )}
-              
-              <div className="ml-4 text-sm text-gray-500">
-                {isModified ? 'Unsaved changes' : 'No unsaved changes'}
               </div>
             </div>
-            
-            {/* Canvas editor */}
-            <div className="bg-white p-6 rounded-lg shadow relative">
-              {pages.length > 0 && currentPage < pages.length && (
-                <CanvasEditor
-                  page={pages[currentPage]}
-                  onChange={handlePageUpdate}
-                  selectedElement={selectedElement}
-                  setSelectedElement={setSelectedElement}
-                  onElementChange={handleElementChange}
-                  onPlayAnimation={handlePlayAnimation}
-                  onImageRotate={handleImageRotate}
-                  onImageFlip={handleImageFlip}
-                  onTextStyleChange={handleTextStyleChange}
-                  onAnimationChange={handleAnimationChange}
-                  onMoveForward={handleMoveForward}
-                  onMoveBackward={handleMoveBackward}
-                  onImageStyleChange={handleImageStyleChange}
-                  onDuplicateElement={handleDuplicateElement}
-                  onRemoveElement={handleRemoveElement}
-                  isPreviewMode={isPreviewMode}
-                  setIsPreviewMode={setIsPreviewMode}
+
+            {/* Área do Editor */}
+            <div className="flex-1 flex">
+              {/* Barra lateral esquerda - Timeline */}
+              <div className="w-48 bg-gray-800 border-r border-gray-700">
+                <Timeline
                   currentStep={currentStep}
-                  setCurrentStep={setCurrentStep}
+                  maxSteps={Math.max(...pages[currentPage].elements.map(el => el.step || 0), 0)}
+                  onStepChange={setCurrentStep}
+                  onAddStep={handleAddStep}
+                  onRemoveStep={handleRemoveStep}
+                  isPlaying={isPlaying}
+                  onPlayPause={handlePlayPause}
+                  onStepBack={handleStepBack}
+                  onStepForward={handleStepForward}
+                  elements={pages[currentPage].elements}
+                  onElementSelect={setSelectedElement}
                 />
-              )}
+              </div>
+
+              {/* Área do Canvas */}
+              <div className="flex-1 flex flex-col">
+                {/* Canvas */}
+                <div className="flex-1 flex items-center justify-center bg-gray-900">
+                  <div className="relative" style={{ width: `${CANVAS_WIDTH}px`, height: `${CANVAS_HEIGHT}px` }}>
+                    <CanvasEditor
+                      page={pages[currentPage]}
+                      onChange={handlePageUpdate}
+                      selectedElement={selectedElement}
+                      setSelectedElement={setSelectedElement}
+                      onElementChange={handleElementChange}
+                      onPlayAnimation={handlePlayAnimation}
+                      onImageRotate={handleImageRotate}
+                      onImageFlip={handleImageFlip}
+                      onTextStyleChange={handleTextStyleChange}
+                      onAnimationChange={handleAnimationChange}
+                      onMoveForward={handleMoveForward}
+                      onMoveBackward={handleMoveBackward}
+                      onImageStyleChange={handleImageStyleChange}
+                      onDuplicateElement={handleDuplicateElement}
+                      onRemoveElement={handleRemoveElement}
+                      isPreviewMode={isPreviewMode}
+                      setIsPreviewMode={setIsPreviewMode}
+                      currentStep={currentStep}
+                      setCurrentStep={setCurrentStep}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Barra lateral direita - Propriedades */}
+              <div className="w-48 bg-gray-800 border-l border-gray-700 p-2">
+                <h3 className="text-white text-xs font-medium mb-2">Propriedades</h3>
+                
+                {selectedElement && (
+                  <div className="space-y-2">
+                    {/* Controles do elemento selecionado */}
+                    <div className="space-y-1">
+                      <label className="text-gray-300 text-xs">Etapa</label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={pages[currentPage].elements.find(el => el.id === selectedElement)?.step || 0}
+                        onChange={(e) => handleElementChange(selectedElement, { step: parseInt(e.target.value || 0) })}
+                        className="w-full bg-gray-700 text-white border border-gray-600 rounded px-1 py-0.5 text-xs"
+                      />
+                    </div>
+
+                    {/* Controles específicos por tipo de elemento */}
+                    {pages[currentPage].elements.find(el => el.id === selectedElement)?.type === 'text' && (
+                      <>
+                        <div className="space-y-1">
+                          <label className="text-gray-300 text-xs">Estilo</label>
+                          <select
+                            value={pages[currentPage].elements.find(el => el.id === selectedElement)?.textStyle || 'normal'}
+                            onChange={(e) => handleTextStyleChange(selectedElement, e.target.value)}
+                            className="w-full bg-gray-700 text-white border border-gray-600 rounded px-1 py-0.5 text-xs"
+                          >
+                            {TEXT_STYLES.map(style => (
+                              <option key={style.value} value={style.value}>
+                                {style.label}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div className="space-y-1">
+                          <label className="text-gray-300 text-xs">Áudio</label>
+                          {pages[currentPage].elements.find(el => el.id === selectedElement)?.audio ? (
+                            <div className="space-y-1">
+                              <audio 
+                                controls 
+                                src={pages[currentPage].elements.find(el => el.id === selectedElement)?.audio}
+                                className="w-full h-8"
+                              />
+                              <button
+                                onClick={() => handleElementChange(selectedElement, { audio: null })}
+                                className="w-full flex items-center justify-center p-1 bg-red-600 text-white rounded hover:bg-red-700 text-xs"
+                              >
+                                <FiTrash2 size={12} className="mr-1" />
+                                Remover Áudio
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => handleShowMediaLibrary('audio')}
+                              className="w-full flex items-center justify-center p-1 bg-blue-600 text-white rounded hover:bg-blue-700 text-xs"
+                            >
+                              <FiMusic size={12} className="mr-1" />
+                              Adicionar Áudio
+                            </button>
+                          )}
+                        </div>
+                      </>
+                    )}
+
+                    {/* Animações */}
+                    <div className="space-y-1">
+                      <label className="text-gray-300 text-xs">Animação</label>
+                      <select
+                        value={pages[currentPage].elements.find(el => el.id === selectedElement)?.animation || ''}
+                        onChange={(e) => handleAnimationChange(selectedElement, e.target.value)}
+                        className="w-full bg-gray-700 text-white border border-gray-600 rounded px-1 py-0.5 text-xs"
+                      >
+                        {ANIMATIONS.map(anim => (
+                          <option key={anim.value} value={anim.value}>
+                            {anim.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Ações rápidas */}
+                    <div className="flex flex-wrap gap-1">
+                      <button
+                        onClick={() => handleDuplicateElement(selectedElement)}
+                        className="flex items-center p-1 bg-blue-600 text-white rounded hover:bg-blue-700"
+                        title="Duplicar"
+                      >
+                        <FiCopy size={12} />
+                      </button>
+                      
+                      <button
+                        onClick={() => handleRemoveElement(selectedElement)}
+                        className="flex items-center p-1 bg-red-600 text-white rounded hover:bg-red-700"
+                        title="Remover"
+                      >
+                        <FiTrash2 size={12} />
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           </>
         )}
-        
+
         {/* Media Library Modal */}
         {showMediaLibrary && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg shadow-xl w-4/5 h-4/5 flex flex-col">
-              <div className="flex justify-between items-center border-b p-4">
-                <h2 className="text-xl font-semibold">
-                  {mediaSelectionType === 'image' && currentTab === 'details' 
-                    ? 'Selecionar Capa do Livro' 
-                    : mediaSelectionType === 'image' 
-                      ? 'Adicionar Imagem' 
-                      : mediaSelectionType === 'audio' 
-                        ? 'Adicionar Áudio' 
-                        : 'Selecionar Fundo'}
+          <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50">
+            <div className="bg-gray-800 rounded-lg w-3/4 h-3/4 overflow-hidden flex flex-col">
+              <div className="p-4 border-b border-gray-700 flex justify-between items-center">
+                <h2 className="text-white text-xl font-semibold">
+                  {mediaSelectionType === 'background' ? 'Selecionar Background' : 
+                   mediaSelectionType === 'image' ? 'Selecionar Imagem' : 
+                   mediaSelectionType === 'audio' ? 'Selecionar Áudio' : 'Biblioteca de Mídia'}
                 </h2>
                 <button
                   onClick={() => setShowMediaLibrary(false)}
-                  className="text-gray-500 hover:text-gray-700"
+                  className="text-gray-400 hover:text-white"
                 >
-                  &times;
+                  <FiX size={24} />
                 </button>
               </div>
+              
               <div className="flex-1 overflow-auto">
-                <MediaLibrary
+                <MediaLibrary 
                   onSelect={handleMediaSelected}
                   mediaType={mediaSelectionType}
                 />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Background Editor Modal */}
+        {showBackgroundEditor && pages[currentPage]?.background && (
+          <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50">
+            <div className="bg-gray-800 rounded-lg p-6 w-[800px] max-w-[90vw]">
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-white text-xl font-semibold">Editar Background</h2>
+                <button
+                  onClick={() => setShowBackgroundEditor(false)}
+                  className="text-gray-400 hover:text-white"
+                >
+                  <FiX size={24} />
+                </button>
+              </div>
+
+              <div className="relative w-full" style={{ paddingTop: '75%' }}>
+                <div 
+                  className="absolute inset-0 bg-gray-900 rounded overflow-hidden"
+                  style={{
+                    backgroundImage: `url(${typeof pages[currentPage].background === 'string' ? pages[currentPage].background : pages[currentPage].background?.url})`,
+                    backgroundSize: `${backgroundScale * 100}%`,
+                    backgroundPosition: `${backgroundPosition.x * 100}% ${backgroundPosition.y * 100}%`,
+                    backgroundRepeat: 'no-repeat'
+                  }}
+                >
+                  {/* Área de recorte */}
+                  <div 
+                    className="absolute cursor-move border-2 border-white border-dashed bg-black bg-opacity-50"
+                    style={{
+                      width: '80%',
+                      height: '80%',
+                      left: '10%',
+                      top: '10%'
+                    }}
+                    onMouseDown={(e) => {
+                      const container = e.currentTarget.parentElement;
+                      const rect = container.getBoundingClientRect();
+                      const cropRect = e.currentTarget.getBoundingClientRect();
+                      const startX = e.clientX;
+                      const startY = e.clientY;
+                      const startLeft = ((cropRect.left - rect.left) / rect.width);
+                      const startTop = ((cropRect.top - rect.top) / rect.height);
+                      
+                      const handleMouseMove = (moveEvent) => {
+                        const deltaX = (moveEvent.clientX - startX) / rect.width;
+                        const deltaY = (moveEvent.clientY - startY) / rect.height;
+                        
+                        const newX = Math.max(0, Math.min(0.2, startLeft + deltaX));
+                        const newY = Math.max(0, Math.min(0.2, startTop + deltaY));
+                        
+                        setBackgroundPosition({
+                          x: 0.5 + (newX - 0.1) * 5,
+                          y: 0.5 + (newY - 0.1) * 5
+                        });
+                      };
+                      
+                      const handleMouseUp = () => {
+                        document.removeEventListener('mousemove', handleMouseMove);
+                        document.removeEventListener('mouseup', handleMouseUp);
+                      };
+                      
+                      document.addEventListener('mousemove', handleMouseMove);
+                      document.addEventListener('mouseup', handleMouseUp);
+                    }}
+                  />
+                </div>
+              </div>
+
+              <div className="mt-4 space-y-4">
+                <div>
+                  <label className="block text-white text-sm mb-2">Zoom</label>
+                  <input
+                    type="range"
+                    min="1"
+                    max="3"
+                    step="0.1"
+                    value={backgroundScale}
+                    onChange={(e) => setBackgroundScale(parseFloat(e.target.value))}
+                    className="w-full"
+                  />
+                </div>
+
+                <div className="flex justify-end space-x-2">
+                  <button
+                    onClick={() => setShowBackgroundEditor(false)}
+                    className="px-4 py-2 bg-gray-700 text-white rounded hover:bg-gray-600"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={() => {
+                      setPages(prev => {
+                        const updated = deepClone(prev);
+                        const currentBg = updated[currentPage].background;
+                        updated[currentPage].background = {
+                          url: typeof currentBg === 'string' ? currentBg : currentBg?.url,
+                          position: backgroundPosition,
+                          scale: backgroundScale
+                        };
+                        return updated;
+                      });
+                      setIsModified(true);
+                      setShowBackgroundEditor(false);
+                    }}
+                    className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+                  >
+                    Salvar
+                  </button>
+                </div>
               </div>
             </div>
           </div>

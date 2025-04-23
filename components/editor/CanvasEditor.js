@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Rnd } from 'react-rnd';
-import { FiType, FiImage, FiMusic, FiTrash2, FiCopy, FiChevronUp, FiChevronDown, FiPlay, FiVolume2, FiRefreshCw, FiMaximize, FiSquare, FiMove, FiGrid } from 'react-icons/fi';
+import { FiType, FiImage, FiMusic, FiTrash2, FiCopy, FiChevronUp, FiChevronDown, FiPlay, FiRefreshCw, FiMaximize, FiSquare, FiMove, FiGrid } from 'react-icons/fi';
 import MediaLibrary from './MediaLibrary';
 import supabase from '../../lib/supabase';
 import 'animate.css'; // Importar a biblioteca de animações
@@ -8,6 +8,10 @@ import 'animate.css'; // Importar a biblioteca de animações
 // Dimensões fixas para o canvas (resolução padrão do livro)
 const CANVAS_WIDTH = 1024;
 const CANVAS_HEIGHT = 768;
+
+// Dimensões do viewport (área visível no app)
+const VIEWPORT_WIDTH = 800;
+const VIEWPORT_HEIGHT = 600;
 
 // Deep clone function to avoid reference issues
 const deepClone = (obj) => {
@@ -336,55 +340,78 @@ const CanvasEditor = React.memo(({
     setEditingTextValue('');
   }, [editingText, editingTextValue, handleTextChange]);
   
+  // Adicionar função para filtrar elementos por etapa
+  const getVisibleElements = useCallback((elements, currentStep) => {
+    return elements.filter(el => el.step <= currentStep);
+  }, []);
+  
   return (
     <div className="flex flex-col h-full">
-      {/* Barra de ferramentas do editor - Simplificada */}
-      <div className="flex items-center justify-between p-2 bg-gray-100 border-b border-gray-300">
-        <div className="flex items-center space-x-2">
-          <button 
-            onClick={toggleGrid} 
-            className={`p-2 rounded hover:bg-gray-200 ${showGrid ? 'bg-gray-200 text-blue-600' : ''}`}
-            title="Mostrar/ocultar grade"
-          >
-            <FiGrid />
-          </button>
-          
-          <div className="text-sm text-gray-600">
-            Escala: {Math.round(scale * 100)}%
-          </div>
-        </div>
-        
-        <button 
-          onClick={toggleRealSizePreview} 
-          className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700"
-        >
-          Ver como ficará no leitor
-        </button>
-      </div>
-      
       {/* Área do editor com escala adaptativa */}
       <div 
         ref={containerRef}
-        className="relative flex-grow flex items-center justify-center bg-gray-200 overflow-auto p-5"
+        className="relative flex-grow flex items-center justify-center bg-gray-900 overflow-auto"
       >
         <div 
-          className="relative shadow-lg bg-white"
+          className="relative bg-white"
           style={{
             width: `${CANVAS_WIDTH}px`,
             height: `${CANVAS_HEIGHT}px`,
             transform: `scale(${scale})`,
-            transformOrigin: 'top left',
+            transformOrigin: 'center',
             transition: 'transform 0.2s ease'
           }}
           onClick={() => !isPreviewMode && setSelectedElement(null)}
         >
+          {/* Área de visualização do app - Nova adição */}
+          {!isPreviewMode && (
+            <>
+              {/* Sombras nas áreas não visíveis */}
+              <div className="absolute inset-0 bg-black bg-opacity-20 pointer-events-none">
+                {/* Recorte da área visível */}
+                <div 
+                  className="absolute bg-transparent"
+                  style={{
+                    left: `${(CANVAS_WIDTH - VIEWPORT_WIDTH) / 2}px`,
+                    top: `${(CANVAS_HEIGHT - VIEWPORT_HEIGHT) / 2}px`,
+                    width: `${VIEWPORT_WIDTH}px`,
+                    height: `${VIEWPORT_HEIGHT}px`,
+                    boxShadow: '0 0 0 9999px rgba(0, 0, 0, 0.2)'
+                  }}
+                />
+              </div>
+              
+              {/* Borda da área visível */}
+              <div 
+                className="absolute border-2 border-red-500 border-dashed pointer-events-none z-50"
+                style={{
+                  left: `${(CANVAS_WIDTH - VIEWPORT_WIDTH) / 2}px`,
+                  top: `${(CANVAS_HEIGHT - VIEWPORT_HEIGHT) / 2}px`,
+                  width: `${VIEWPORT_WIDTH}px`,
+                  height: `${VIEWPORT_HEIGHT}px`
+                }}
+              >
+                <div className="absolute -top-6 left-1/2 transform -translate-x-1/2 bg-red-500 text-white px-2 py-1 rounded text-xs whitespace-nowrap">
+                  Área visível no app ({VIEWPORT_WIDTH}x{VIEWPORT_HEIGHT}px)
+                </div>
+              </div>
+            </>
+          )}
+          
           {/* Background da página */}
           <div 
             className="absolute inset-0 w-full h-full"
             style={{
-              backgroundImage: page.background ? `url(${page.background})` : 'none',
+              backgroundImage: page.background 
+                ? `url(${typeof page.background === 'string' ? page.background : page.background.url})`
+                : 'none',
               backgroundSize: 'cover',
-              backgroundPosition: 'center'
+              backgroundPosition: page.background?.position 
+                ? `${page.background.position.x * 100}% ${page.background.position.y * 100}%` 
+                : 'center',
+              backgroundRepeat: 'no-repeat',
+              transform: page.background?.scale ? `scale(${page.background.scale})` : 'none',
+              transformOrigin: 'center'
             }}
           />
           
@@ -427,7 +454,7 @@ const CanvasEditor = React.memo(({
           )}
 
           {/* Render all elements */}
-          {visibleElements.map(element => (
+          {getVisibleElements(page.elements, currentStep).map(element => (
             <Rnd
               key={element.id}
               default={{
@@ -525,17 +552,6 @@ const CanvasEditor = React.memo(({
                       className="p-1 rounded-full hover:bg-green-100"
                     >
                       <FiPlay className="text-green-600 hover:text-green-800" size={14} />
-                    </button>
-                    
-                    <button 
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleShowElementAudioLibrary(element.id);
-                      }} 
-                      title="Adicionar áudio"
-                      className="p-1 rounded-full hover:bg-purple-100"
-                    >
-                      <FiVolume2 className="text-purple-600 hover:text-purple-800" size={14} />
                     </button>
                     
                     <button 
@@ -643,36 +659,6 @@ const CanvasEditor = React.memo(({
                           objectFit: element.imageStyle?.objectFit || 'contain',
                           backgroundColor: 'transparent'
                         }}
-                      />
-                    </div>
-                  </div>
-                )}
-                
-                {/* Audio element - Estilização aprimorada */}
-                {element.type === 'audio' && (
-                  <div className="w-full h-full bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-2 border border-blue-100 flex flex-col justify-center">
-                    <div className="text-center text-xs text-blue-500 mb-1">Áudio</div>
-                    <audio 
-                      controls 
-                      src={element.content} 
-                      className="w-full" 
-                      onClick={(e) => e.stopPropagation()}
-                    />
-                  </div>
-                )}
-
-                {/* Audio player if element has audio - show always - Estilização aprimorada */}
-                {element.audio && (
-                  <div 
-                    className="absolute top-0 right-0 bg-white/90 p-1 rounded-bl z-10 shadow-sm border border-blue-100"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <div className="flex items-center gap-1">
-                      <div className="text-xs text-blue-500">🔊</div>
-                      <audio 
-                        controls 
-                        src={element.audio} 
-                        className="h-6 w-24" 
                       />
                     </div>
                   </div>
@@ -791,11 +777,6 @@ const CanvasEditor = React.memo(({
                         }}
                       />
                     </div>
-                  )}
-                  
-                  {/* Conteúdo de áudio */}
-                  {element.type === 'audio' && (
-                    <audio controls src={element.content} className="w-full h-full" />
                   )}
                 </div>
               ))}
