@@ -15,6 +15,7 @@ export default function Authors() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [deleteLoading, setDeleteLoading] = useState(null);
+  const [searchTerm, setSearchTerm] = useState('');
   
   // Verificar autenticação
   useEffect(() => {
@@ -99,6 +100,12 @@ export default function Authors() {
     router.push('/authors/new');
   };
   
+  // Filtrar autores com base no termo de pesquisa
+  const filteredAuthors = authors.filter(author => 
+    author.name?.toLowerCase().includes(searchTerm.toLowerCase()) || 
+    author.bio?.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+  
   if (loading) {
     return (
       <Layout>
@@ -129,6 +136,24 @@ export default function Authors() {
             </button>
           </div>
           
+          {/* Barra de pesquisa */}
+          <div className="mb-6">
+            <div className="relative max-w-md mx-auto">
+              <input
+                type="text"
+                placeholder="Pesquisar autores por nome ou biografia..."
+                className="w-full px-4 py-2 pr-10 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
+              <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
+                <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+              </div>
+            </div>
+          </div>
+          
           {error && (
             <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-6">
               {error}
@@ -145,6 +170,18 @@ export default function Authors() {
                 className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
               >
                 Cadastrar primeiro autor
+              </button>
+            </div>
+          ) : filteredAuthors.length === 0 ? (
+            <div className="bg-gray-100 p-8 rounded-lg text-center">
+              <p className="text-lg text-gray-600 mb-4">
+                Nenhum autor encontrado com o termo "{searchTerm}"
+              </p>
+              <button
+                onClick={() => setSearchTerm('')}
+                className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+              >
+                Limpar pesquisa
               </button>
             </div>
           ) : (
@@ -167,7 +204,7 @@ export default function Authors() {
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {authors.map((author) => (
+                  {filteredAuthors.map((author) => (
                     <tr key={author.id}>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="flex items-center">

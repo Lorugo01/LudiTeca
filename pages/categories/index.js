@@ -15,6 +15,7 @@ export default function Categories() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [deleteLoading, setDeleteLoading] = useState(null);
+  const [searchTerm, setSearchTerm] = useState('');
   
   // Verificar autenticação
   useEffect(() => {
@@ -104,6 +105,11 @@ export default function Categories() {
     router.push('/categories/new');
   };
   
+  // Filtrar categorias com base no termo de pesquisa
+  const filteredCategories = categories.filter(category => 
+    category.name?.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+  
   if (loading) {
     return (
       <Layout>
@@ -134,6 +140,24 @@ export default function Categories() {
             </button>
           </div>
           
+          {/* Barra de pesquisa */}
+          <div className="mb-6">
+            <div className="relative max-w-md mx-auto">
+              <input
+                type="text"
+                placeholder="Pesquisar categorias por nome..."
+                className="w-full px-4 py-2 pr-10 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
+              <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
+                <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+              </div>
+            </div>
+          </div>
+          
           {error && (
             <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-6">
               {error}
@@ -152,12 +176,24 @@ export default function Categories() {
                 Criar primeira categoria
               </button>
             </div>
+          ) : filteredCategories.length === 0 ? (
+            <div className="bg-gray-100 p-8 rounded-lg text-center">
+              <p className="text-lg text-gray-600 mb-4">
+                Nenhuma categoria encontrada com o termo "{searchTerm}"
+              </p>
+              <button
+                onClick={() => setSearchTerm('')}
+                className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+              >
+                Limpar pesquisa
+              </button>
+            </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {categories.map(category => (
-                <div key={category.id} className="bg-white rounded-lg shadow-md overflow-hidden">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+              {filteredCategories.map(category => (
+                <div key={category.id} className="bg-white rounded-lg shadow-sm overflow-hidden">
                   <div 
-                    className="h-40 flex items-center justify-center"
+                    className="h-28 flex items-center justify-center"
                     style={{ 
                       backgroundColor: category.color || '#f3f4f6',
                       backgroundImage: category.imageUrl ? `url(${category.imageUrl})` : 'none',
@@ -166,32 +202,32 @@ export default function Categories() {
                     }}
                   >
                     {!category.imageUrl && (
-                      <h2 className="text-2xl font-bold text-white text-center">
+                      <h2 className="text-xl font-bold text-white text-center">
                         {category.name}
                       </h2>
                     )}
                   </div>
                   
-                  <div className="p-4">
-                    <h2 className="text-xl font-semibold mb-2 truncate">
+                  <div className="p-3">
+                    <h2 className="text-base font-semibold mb-2 truncate">
                       {category.name}
                     </h2>
                     
                     <div className="flex justify-between">
                       <button
                         onClick={() => router.push(`/categories/${category.id}/edit`)}
-                        className="flex items-center px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600"
+                        className="flex items-center px-2 py-1 text-xs bg-blue-500 text-white rounded hover:bg-blue-600"
                       >
-                        <FiEdit className="mr-1" />
+                        <FiEdit className="mr-1" size={12} />
                         Editar
                       </button>
                       
                       <button
                         onClick={() => handleDeleteCategory(category.id)}
-                        className="flex items-center px-3 py-1 bg-red-500 text-white rounded hover:bg-red-600"
+                        className="flex items-center px-2 py-1 text-xs bg-red-500 text-white rounded hover:bg-red-600"
                         disabled={deleteLoading === category.id}
                       >
-                        <FiTrash2 className="mr-1" />
+                        <FiTrash2 className="mr-1" size={12} />
                         {deleteLoading === category.id ? 'Excluindo...' : 'Excluir'}
                       </button>
                     </div>
