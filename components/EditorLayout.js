@@ -31,7 +31,7 @@ export default function EditorLayout({ children }) {
         </div>
 
         {/* Conteúdo */}
-        <main className="flex-1 overflow-hidden">
+        <main className="flex-1 overflow-auto">
           {children}
         </main>
       </div>
