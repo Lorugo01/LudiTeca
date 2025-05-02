@@ -4,10 +4,14 @@ import { FiType, FiImage, FiMusic, FiTrash2, FiCopy, FiChevronUp, FiChevronDown,
 import MediaLibrary from './MediaLibrary';
 import supabase from '../../lib/supabase';
 import 'animate.css'; // Importar a biblioteca de animações
+import TextElementControls from './TextElementControls';
+import ImageElementControls from './ImageElementControls';
 
 // Dimensões fixas para o canvas (resolução padrão do livro)
-const CANVAS_WIDTH = 1024;
-const CANVAS_HEIGHT = 768;
+const CANVAS_WIDTH = 1280;
+const CANVAS_HEIGHT = 720;
+
+
 
 // Dimensões do viewport (área visível no app)
 const VIEWPORT_WIDTH = 800;
@@ -38,6 +42,20 @@ const TEXT_STYLES = [
   { value: 'narrative', label: 'Narrativa' },
   { value: 'speech', label: 'Balão de Fala' },
   { value: 'thought', label: 'Pensamento' }
+];
+
+// Lista de fontes disponíveis com nomes exatos
+const AVAILABLE_FONTS = [
+  { value: 'Roboto', label: 'Roboto' },
+  { value: 'Raleway', label: 'Raleway' },
+  { value: 'Poppins', label: 'Poppins' },
+  { value: 'Patrick Hand', label: 'Patrick Hand' },
+  { value: 'Open Sans', label: 'Open Sans' },
+  { value: 'Nunito', label: 'Nunito' },
+  { value: 'Merriweather', label: 'Merriweather' },
+  { value: 'Dosis', label: 'Dosis' },
+  { value: 'Comic Neue', label: 'Comic Neue' },
+  { value: 'Comic Neue Sans', label: 'Comic Neue Sans' }
 ];
 
 // Main component wrapped in memo to prevent unnecessary re-renders
@@ -87,6 +105,9 @@ const CanvasEditor = React.memo(({
   const [editingText, setEditingText] = useState(null);
   const [editingTextValue, setEditingTextValue] = useState('');
   const textInputRef = useRef(null);
+  
+  const [clickCount, setClickCount] = useState({});
+  const clickTimeout = useRef(null);
   
   // Efeito para calcular a escala do canvas com base no tamanho do contêiner
   useEffect(() => {
@@ -184,10 +205,15 @@ const CanvasEditor = React.memo(({
       size: { width: 200, height: 'auto' },
       animation: '',
       step: 0,
-      zIndex: (page.elements?.length || 0) + 1
+      zIndex: (page.elements?.length || 0) + 1,
+      fontSize: 16,
+      fontFamily: 'Roboto',
+      fontWeight: 'normal',
+      fontStyle: 'normal',
+      textAlign: 'left',
+      color: '#000000'
     };
     
-    // Add the new element through parent handler
     const updatedPage = {
       ...page,
       elements: [...(page.elements || []), newElement]
@@ -345,6 +371,55 @@ const CanvasEditor = React.memo(({
     return elements.filter(el => el.step <= currentStep);
   }, []);
   
+  // Função para garantir que o nome da fonte está correto
+  const getValidFontFamily = (fontFamily) => {
+    if (!fontFamily) return 'Roboto';
+    const font = AVAILABLE_FONTS.find(f => f.value.toLowerCase() === fontFamily.toLowerCase());
+    return font ? font.value : 'Roboto';
+  };
+  
+  const handleElementClick = useCallback((e, element) => {
+    e.stopPropagation();
+    
+    if (!element.isLocked) {
+      setSelectedElement(element.id);
+      return;
+    }
+
+    // Lógica para elementos bloqueados
+    const currentCount = clickCount[element.id] || 0;
+    const newCount = currentCount + 1;
+    
+    // Limpa o timeout anterior se existir
+    if (clickTimeout.current) {
+      clearTimeout(clickTimeout.current);
+    }
+
+    // Atualiza o contador de cliques
+    setClickCount(prev => ({
+      ...prev,
+      [element.id]: newCount
+    }));
+
+    // Se atingiu 3 cliques, seleciona o elemento
+    if (newCount >= 3) {
+      setSelectedElement(element.id);
+      setClickCount(prev => ({
+        ...prev,
+        [element.id]: 0
+      }));
+      return;
+    }
+
+    // Reset o contador após 1 segundo
+    clickTimeout.current = setTimeout(() => {
+      setClickCount(prev => ({
+        ...prev,
+        [element.id]: 0
+      }));
+    }, 1000);
+  }, [clickCount, setSelectedElement]);
+  
   return (
     <div className="flex flex-col h-full">
       {/* Área do editor com escala adaptativa */}
@@ -363,41 +438,6 @@ const CanvasEditor = React.memo(({
           }}
           onClick={() => !isPreviewMode && setSelectedElement(null)}
         >
-          {/* Área de visualização do app - Nova adição */}
-          {!isPreviewMode && (
-            <>
-              {/* Sombras nas áreas não visíveis */}
-              <div className="absolute inset-0 bg-black bg-opacity-20 pointer-events-none">
-                {/* Recorte da área visível */}
-                <div 
-                  className="absolute bg-transparent"
-                  style={{
-                    left: `${(CANVAS_WIDTH - VIEWPORT_WIDTH) / 2}px`,
-                    top: `${(CANVAS_HEIGHT - VIEWPORT_HEIGHT) / 2}px`,
-                    width: `${VIEWPORT_WIDTH}px`,
-                    height: `${VIEWPORT_HEIGHT}px`,
-                    boxShadow: '0 0 0 9999px rgba(0, 0, 0, 0.2)'
-                  }}
-                />
-              </div>
-              
-              {/* Borda da área visível */}
-              <div 
-                className="absolute border-2 border-red-500 border-dashed pointer-events-none z-50"
-                style={{
-                  left: `${(CANVAS_WIDTH - VIEWPORT_WIDTH) / 2}px`,
-                  top: `${(CANVAS_HEIGHT - VIEWPORT_HEIGHT) / 2}px`,
-                  width: `${VIEWPORT_WIDTH}px`,
-                  height: `${VIEWPORT_HEIGHT}px`
-                }}
-              >
-                <div className="absolute -top-6 left-1/2 transform -translate-x-1/2 bg-red-500 text-white px-2 py-1 rounded text-xs whitespace-nowrap">
-                  Área visível no app ({VIEWPORT_WIDTH}x{VIEWPORT_HEIGHT}px)
-                </div>
-              </div>
-            </>
-          )}
-          
           {/* Background da página */}
           <div 
             className="absolute inset-0 w-full h-full"
@@ -414,45 +454,6 @@ const CanvasEditor = React.memo(({
               transformOrigin: 'center'
             }}
           />
-          
-          {/* Grade guia (opcional) - Aprimorada com grid 3x3 */}
-          {showGrid && !isPreviewMode && (
-            <div className="absolute inset-0 pointer-events-none">
-              {/* Linhas horizontais - agora com 3 linhas */}
-              {[...Array(3)].map((_, i) => (
-                <div 
-                  key={`h-${i}`} 
-                  className="absolute w-full h-px bg-blue-400 opacity-15" 
-                  style={{ top: `${(i + 1) * 25}%` }} 
-                />
-              ))}
-              
-              {/* Linhas verticais - agora com 3 linhas */}
-              {[...Array(3)].map((_, i) => (
-                <div 
-                  key={`v-${i}`} 
-                  className="absolute h-full w-px bg-blue-400 opacity-15" 
-                  style={{ left: `${(i + 1) * 25}%` }} 
-                />
-              ))}
-              
-              {/* Linhas principais centrais com destaque */}
-              <div className="absolute left-0 top-1/2 w-full h-px bg-blue-400 bg-opacity-30" />
-              <div className="absolute top-0 left-1/2 h-full w-px bg-blue-400 bg-opacity-30" />
-              
-              {/* Margem de segurança (10% de cada lado) */}
-              <div 
-                className="absolute border-2 border-dashed border-red-400 border-opacity-30 pointer-events-none"
-                style={{
-                  top: '10%',
-                  left: '10%',
-                  width: '80%',
-                  height: '80%'
-                }}
-              />
-            </div>
-          )}
-
           {/* Render all elements */}
           {getVisibleElements(page.elements, currentStep).map(element => (
             <Rnd
@@ -482,13 +483,13 @@ const CanvasEditor = React.memo(({
                 });
                 handlePositionChange(element.id, position);
               }}
-              onClick={(e) => {
-                e.stopPropagation();
-                !isPreviewMode && setSelectedElement(element.id);
-              }}
+              onClick={(e) => handleElementClick(e, element)}
               onDoubleClick={(e) => {
-                e.stopPropagation();
-                !isPreviewMode && setSelectedElement && setSelectedElement(element.id);
+                // Previne a seleção em double-click para elementos bloqueados
+                if (!element.isLocked) {
+                  e.stopPropagation();
+                  setSelectedElement && setSelectedElement(element.id);
+                }
               }}
               enableResizing={!isPreviewMode}
               disableDragging={isPreviewMode}
@@ -496,6 +497,13 @@ const CanvasEditor = React.memo(({
                 selectedElement === element.id && !isPreviewMode 
                   ? 'ring-2 ring-blue-500 shadow-md border border-blue-300' 
                   : 'hover:ring-1 hover:ring-blue-300'
+              } ${
+                element.isLocked && clickCount[element.id] > 0 
+                  ? `after:content-['${3 - (clickCount[element.id] || 0)} cliques para desbloquear'] 
+                     after:absolute after:top-0 after:left-1/2 after:-translate-x-1/2 after:-translate-y-full 
+                     after:bg-black after:text-white after:px-2 after:py-1 after:rounded after:text-xs 
+                     after:whitespace-nowrap after:opacity-75`
+                  : ''
               }`}
               style={{ 
                 zIndex: element.zIndex || 1,
@@ -507,64 +515,33 @@ const CanvasEditor = React.memo(({
                 id={`el-${element.id}`} 
                 className={`w-full h-full relative ${element.animation ? `animate__animated ${element.animation}` : ''}`}
               >
-                {/* Controles inline quando o elemento está selecionado - VERSÃO SIMPLIFICADA */}
+                {/* Controles inline quando o elemento está selecionado */}
                 {selectedElement === element.id && !isPreviewMode && (
-                  <div className="absolute -top-8 right-0 flex space-x-1 z-50 bg-white/90 rounded-full p-1 shadow-sm">
-                    <button 
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onDuplicateElement(element.id);
-                      }} 
-                      title="Duplicar"
-                      className="p-1 rounded-full hover:bg-blue-100"
-                    >
-                      <FiCopy className="text-blue-600 hover:text-blue-800" size={14} />
-                    </button>
-                    
-                    <button 
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onMoveForward(element.id);
-                      }} 
-                      title="Trazer para frente"
-                      className="p-1 rounded-full hover:bg-blue-100"
-                    >
-                      <FiChevronUp className="text-blue-600 hover:text-blue-800" size={14} />
-                    </button>
-                    
-                    <button 
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onMoveBackward(element.id);
-                      }} 
-                      title="Enviar para trás"
-                      className="p-1 rounded-full hover:bg-blue-100"
-                    >
-                      <FiChevronDown className="text-blue-600 hover:text-blue-800" size={14} />
-                    </button>
-                    
-                    <button 
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onPlayAnimation(element.id, element.animation);
-                      }} 
-                      title="Testar animação"
-                      className="p-1 rounded-full hover:bg-green-100"
-                    >
-                      <FiPlay className="text-green-600 hover:text-green-800" size={14} />
-                    </button>
-                    
-                    <button 
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onRemoveElement(element.id);
-                      }} 
-                      title="Remover"
-                      className="p-1 rounded-full hover:bg-red-100"
-                    >
-                      <FiTrash2 className="text-red-500 hover:text-red-700" size={14} />
-                    </button>
-                  </div>
+                  <>
+                    {element.type === 'text' ? (
+                      <TextElementControls
+                        element={element}
+                        onPlayAnimation={onPlayAnimation}
+                        handleElementChange={handleElementChange}
+                        onDuplicateElement={onDuplicateElement}
+                        onMoveForward={onMoveForward}
+                        onMoveBackward={onMoveBackward}
+                        onRemoveElement={onRemoveElement}
+                      />
+                    ) : element.type === 'image' ? (
+                      <ImageElementControls
+                        element={element}
+                        onPlayAnimation={onPlayAnimation}
+                        handleElementChange={handleElementChange}
+                        onDuplicateElement={onDuplicateElement}
+                        onMoveForward={onMoveForward}
+                        onMoveBackward={onMoveBackward}
+                        onRemoveElement={onRemoveElement}
+                        onImageRotate={onImageRotate}
+                        onImageFlip={onImageFlip}
+                      />
+                    ) : null}
+                  </>
                 )}
 
                 {/* Text element - Aprimorado com estilos modernos */}
@@ -593,6 +570,12 @@ const CanvasEditor = React.memo(({
                     onClick={(e) => {
                       e.stopPropagation();
                       if (!isPreviewMode) {
+                        setSelectedElement(element.id);
+                      }
+                    }}
+                    onDoubleClick={(e) => {
+                      e.stopPropagation();
+                      if (!isPreviewMode) {
                         handleStartEditingText(element);
                       }
                     }}
@@ -610,11 +593,12 @@ const CanvasEditor = React.memo(({
                         }}
                         className="w-full h-full resize-none focus:outline-none focus:ring-1 focus:ring-blue-400"
                         style={{
-                          fontFamily: 'inherit',
-                          fontSize: 'inherit',
-                          color: 'inherit',
-                          lineHeight: 'inherit',
-                          textAlign: 'inherit',
+                          fontFamily: element.fontFamily || 'Roboto',
+                          fontSize: element.fontSize ? `${element.fontSize}px` : '16px',
+                          fontWeight: element.fontWeight || 'normal',
+                          fontStyle: element.fontStyle || 'normal',
+                          textAlign: element.textAlign || 'left',
+                          color: element.color || '#000000',
                           background: 'transparent',
                           border: 'none'
                         }}
@@ -622,7 +606,18 @@ const CanvasEditor = React.memo(({
                         autoFocus
                       />
                     ) : (
-                      element.content
+                      <div
+                        style={{
+                          fontFamily: element.fontFamily || 'Roboto',
+                          fontSize: element.fontSize ? `${element.fontSize}px` : '16px',
+                          fontWeight: element.fontWeight || 'normal',
+                          fontStyle: element.fontStyle || 'normal',
+                          textAlign: element.textAlign || 'left',
+                          color: element.color || '#000000'
+                        }}
+                      >
+                        {element.content}
+                      </div>
                     )}
                     {element.textStyle === 'speech' && !editingText && (
                       <div className="absolute -bottom-4 -left-2 w-4 h-4 bg-white rotate-45 border-b-2 border-r-2 border-gray-300 shadow-sm"></div>
@@ -638,30 +633,24 @@ const CanvasEditor = React.memo(({
                 
                 {/* Image element - Aprimorado com estilo moderno */}
                 {element.type === 'image' && (
-                  <div className="w-full h-full p-1">
-                    <div className="w-full h-full rounded overflow-hidden">
-                      <img 
-                        src={element.content} 
-                        alt="Content"
-                        className={`w-full h-full ${
-                          selectedElement === element.id ? 'ring-2 ring-blue-400 shadow-md' : ''
-                        }`}
-                        style={{ 
-                          pointerEvents: 'none',
-                          transform: `
-                            rotate(${element.rotation || 0}deg)
-                            scaleX(${element.flipH ? -1 : 1})
-                            scaleY(${element.flipV ? -1 : 1})
-                          `,
-                          borderRadius: element.imageStyle?.borderRadius || '8px',
-                          border: element.imageStyle?.border || '1px solid #e5e7eb',
-                          boxShadow: element.imageStyle?.shadow || '0 2px 8px rgba(0, 0, 0, 0.1)',
-                          objectFit: element.imageStyle?.objectFit || 'contain',
-                          backgroundColor: 'transparent'
-                        }}
-                      />
-                    </div>
-                  </div>
+                  <img 
+                    src={element.content} 
+                    alt="Content"
+                    className={`w-full h-full ${
+                      selectedElement === element.id ? 'ring-2 ring-blue-400' : ''
+                    }`}
+                    style={{ 
+                      pointerEvents: 'none',
+                      transform: `
+                        rotate(${element.rotation || 0}deg)
+                        scaleX(${element.flipH ? -1 : 1})
+                        scaleY(${element.flipV ? -1 : 1})
+                      `,
+                      borderRadius: element.imageStyle?.borderRadius || '8px',
+                      objectFit: element.imageStyle?.objectFit || 'contain',
+                      backgroundColor: 'transparent'
+                    }}
+                  />
                 )}
               </div>
             </Rnd>

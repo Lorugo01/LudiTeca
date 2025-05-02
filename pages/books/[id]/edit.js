@@ -11,12 +11,26 @@ import { getCategories } from '../../../lib/categories';
 import CanvasEditor from '../../../components/editor/CanvasEditor';
 import EditorLayout from '../../../components/EditorLayout';
 import MediaLibrary from '../../../components/editor/MediaLibrary';
-import Timeline from '../../../components/editor/Timeline';
+import StepContoler from '../../../components/editor/StepContoler';
 import { CANVAS_WIDTH, CANVAS_HEIGHT } from '../../../components/editor/CanvasEditor';
 
 // Deep clone utility to prevent reference issues
 const deepClone = (obj) => {
   return JSON.parse(JSON.stringify(obj));
+};
+
+// Função para sanitizar as páginas antes de salvar
+const sanitizePages = (pages) => {
+  return pages.map(page => ({
+    ...page,
+    elements: page.elements.map(el => ({
+      ...el,
+      size: {
+        width: typeof el.size.width === 'number' ? el.size.width : 100,
+        height: typeof el.size.height === 'number' ? el.size.height : 100, // Corrige "auto"
+      }
+    }))
+  }));
 };
 
 // Animation options
@@ -277,24 +291,49 @@ export default function EditBook() {
     setIsModified(true);
   }, [pages, currentPage]);
 
+  // Função para salvar estado no histórico - Movida para cima
+  const saveToHistory = useCallback((newState) => {
+    const newHistory = history.slice(0, historyIndex + 1);
+    newHistory.push(deepClone(newState));
+    setHistory(newHistory);
+    setHistoryIndex(newHistory.length - 1);
+    console.log('Estado salvo no histórico:', newState);
+  }, [history, historyIndex]);
+
+  // Element handlers
+  const handleElementChange = useCallback((id, updates) => {
+    setPages(prev => {
+      const updated = deepClone(prev);
+      const elementIndex = updated[currentPage].elements.findIndex(el => el.id === id);
+      if (elementIndex !== -1) {
+        updated[currentPage].elements[elementIndex] = {
+          ...updated[currentPage].elements[elementIndex],
+          ...updates
+        };
+      }
+      saveToHistory(updated);
+      return updated;
+    });
+    setIsModified(true);
+  }, [currentPage, saveToHistory]);
+
   // Add page to book
   const addPage = useCallback(() => {
-    // Deep clone to avoid reference issues
-    const newPages = deepClone(pages);
-    
-    // Create new page with unique ID
-    const newPage = {
-      id: Date.now().toString(), // Using timestamp as stable ID
-      background: '',
-      elements: [],
-      orientation: 'portrait'
-    };
-    
-    newPages.push(newPage);
-    setPages(newPages);
-    setCurrentPage(newPages.length - 1);
+    setPages(prev => {
+      const updated = deepClone(prev);
+      const newPage = {
+        id: Date.now().toString(),
+        background: '',
+        elements: [],
+        orientation: 'portrait'
+      };
+      updated.push(newPage);
+      saveToHistory(updated);
+      return updated;
+    });
+    setCurrentPage(pages.length);
     setIsModified(true);
-  }, [pages]);
+  }, [pages.length, saveToHistory]);
 
   // Delete current page
   const deletePage = useCallback(() => {
@@ -303,14 +342,15 @@ export default function EditBook() {
       return;
     }
 
-    // Deep clone to avoid reference issues
-    const newPages = deepClone(pages);
-    newPages.splice(currentPage, 1);
-    
-    setPages(newPages);
-    setCurrentPage(Math.min(currentPage, newPages.length - 1));
+    setPages(prev => {
+      const updated = deepClone(prev);
+      updated.splice(currentPage, 1);
+      saveToHistory(updated);
+      return updated;
+    });
+    setCurrentPage(Math.min(currentPage, pages.length - 2));
     setIsModified(true);
-  }, [pages, currentPage]);
+  }, [currentPage, pages.length, saveToHistory]);
 
   // Função para salvar automaticamente as páginas sem feedback visual
   const autoSavePages = useCallback(async (pagesArray) => {
@@ -319,7 +359,7 @@ export default function EditBook() {
     try {
       setAutoSaving(true);
       const updates = {
-        pages: pagesArray
+        pages: sanitizePages(pagesArray) // Usar sanitizePages em vez de passar diretamente
       };
       
       await updateBook(id, updates);
@@ -355,7 +395,7 @@ export default function EditBook() {
         description,
         cover_image: coverImage,
         category_id: categoryId,
-        pages: deepClone(pages) // Usar as páginas atuais
+        pages: sanitizePages(pages) // Usar sanitizePages em vez de deepClone
       };
       
       // Remover o campo authors que veio do JOIN com a tabela de autores
@@ -406,22 +446,6 @@ export default function EditBook() {
     }
     router.push('/books');
   }, [router, isModified]);
-
-  // Element handlers
-  const handleElementChange = useCallback((id, updates) => {
-    setPages(prev => {
-      const updated = deepClone(prev);
-      const elementIndex = updated[currentPage].elements.findIndex(el => el.id === id);
-      if (elementIndex !== -1) {
-        updated[currentPage].elements[elementIndex] = {
-          ...updated[currentPage].elements[elementIndex],
-          ...updates
-        };
-      }
-      return updated;
-    });
-    setIsModified(true);
-  }, [currentPage]);
 
   const handlePlayAnimation = useCallback((id, animation) => {
     const element = pages[currentPage].elements.find(el => el.id === id);
@@ -581,16 +605,19 @@ export default function EditBook() {
       };
       
       updated[currentPage].elements.push(duplicatedElement);
-      setSelectedElement(duplicatedElement.id);
+      saveToHistory(updated);
       return updated;
     });
+    
+    setSelectedElement(null);
     setIsModified(true);
-  }, [currentPage, setSelectedElement]);
+  }, [currentPage, saveToHistory]);
 
   const handleRemoveElement = useCallback((id) => {
     setPages(prev => {
       const updated = deepClone(prev);
       updated[currentPage].elements = updated[currentPage].elements.filter(el => el.id !== id);
+      saveToHistory(updated);
       return updated;
     });
     
@@ -598,9 +625,9 @@ export default function EditBook() {
       setSelectedElement(null);
     }
     setIsModified(true);
-  }, [currentPage, selectedElement, setSelectedElement]);
+  }, [currentPage, selectedElement, setSelectedElement, saveToHistory]);
 
-  // Handlers for adding elements and toggling preview mode
+  // Handlers for adding elements
   const handleAddText = useCallback((textStyle = 'normal') => {
     const newElement = {
       id: Date.now().toString(),
@@ -611,18 +638,26 @@ export default function EditBook() {
       size: { width: 200, height: 'auto' },
       animation: '',
       step: 0,
-      zIndex: (pages[currentPage]?.elements?.length || 0) + 1
+      zIndex: (pages[currentPage]?.elements?.length || 0) + 1,
+      // Novos campos de estilo
+      fontSize: 16,
+      fontFamily: 'Roboto',
+      fontWeight: 'normal',
+      fontStyle: 'normal',
+      textAlign: 'left',
+      color: '#000000'
     };
     
     setPages(prev => {
       const updated = deepClone(prev);
-      updated[currentPage].elements = [...updated[currentPage].elements, newElement];
+      updated[currentPage].elements.push(newElement);
+      saveToHistory(updated);
       return updated;
     });
     
     setSelectedElement(newElement.id);
     setIsModified(true);
-  }, [currentPage, pages, setSelectedElement]);
+  }, [currentPage, pages, setSelectedElement, saveToHistory]);
   
   // Updated Media Library handler
   const handleShowMediaLibrary = useCallback((type) => {
@@ -738,14 +773,6 @@ export default function EditBook() {
     calculateJsonSize();
   }, [calculateJsonSize]);
 
-  // Função para salvar estado no histórico
-  const saveToHistory = useCallback((newPages) => {
-    const newHistory = history.slice(0, historyIndex + 1);
-    newHistory.push(deepClone(newPages));
-    setHistory(newHistory);
-    setHistoryIndex(newHistory.length - 1);
-  }, [history, historyIndex]);
-
   // Função para desfazer (Ctrl+Z)
   const handleUndo = useCallback((e) => {
     if (e.ctrlKey && e.key === 'z') {
@@ -753,7 +780,9 @@ export default function EditBook() {
       if (historyIndex > 0) {
         const newIndex = historyIndex - 1;
         setHistoryIndex(newIndex);
-        setPages(deepClone(history[newIndex]));
+        const previousState = deepClone(history[newIndex]);
+        setPages(previousState);
+        console.log('Estado desfeito:', previousState);
         setIsModified(true);
       }
     }
@@ -766,7 +795,9 @@ export default function EditBook() {
       if (historyIndex < history.length - 1) {
         const newIndex = historyIndex + 1;
         setHistoryIndex(newIndex);
-        setPages(deepClone(history[newIndex]));
+        const nextState = deepClone(history[newIndex]);
+        setPages(nextState);
+        console.log('Estado refeito:', nextState);
         setIsModified(true);
       }
     }
@@ -1192,9 +1223,9 @@ export default function EditBook() {
 
             {/* Área do Editor */}
             <div className="flex-1 flex">
-              {/* Barra lateral esquerda - Timeline */}
+              {/* Barra lateral esquerda - StepContoler */}
               <div className="w-48 bg-gray-800 border-r border-gray-700">
-                <Timeline
+                <StepContoler
                   currentStep={currentStep}
                   maxSteps={Math.max(...pages[currentPage].elements.map(el => el.step || 0), 0)}
                   onStepChange={setCurrentStep}
@@ -1273,6 +1304,91 @@ export default function EditBook() {
                               </option>
                             ))}
                           </select>
+                        </div>
+
+                        {/* Tamanho da fonte */}
+                        <div className="space-y-1">
+                          <label className="text-gray-300 text-xs">Tamanho da Fonte</label>
+                          <input
+                            type="number"
+                            min="8"
+                            max="72"
+                            value={pages[currentPage].elements.find(el => el.id === selectedElement)?.fontSize || 16}
+                            onChange={(e) => handleElementChange(selectedElement, { fontSize: parseInt(e.target.value || 16) })}
+                            className="w-full bg-gray-700 text-white border border-gray-600 rounded px-1 py-0.5 text-xs"
+                          />
+                        </div>
+
+                        {/* Tipo da fonte */}
+                        <div className="space-y-1">
+                          <label className="text-gray-300 text-xs">Fonte</label>
+                          <select
+                            value={pages[currentPage].elements.find(el => el.id === selectedElement)?.fontFamily || 'Roboto'}
+                            onChange={(e) => handleElementChange(selectedElement, { fontFamily: e.target.value })}
+                            className="w-full bg-gray-700 text-white border border-gray-600 rounded px-1 py-0.5 text-xs"
+                          >
+                            <option value="Roboto">Roboto</option>
+                            <option value="Open Sans">Open Sans</option>
+                            <option value="Poppins">Poppins</option>
+                            <option value="Nunito">Nunito</option>
+                            <option value="Lora">Lora (Serifada)</option>
+                            <option value="Merriweather">Merriweather (Serifada)</option>
+                            <option value="Patrick Hand">Patrick Hand (Feito à mão)</option>
+                            <option value="Comic Neue">Comic Neue (Divertida)</option>
+                            <option value="Dosis">Dosis (Redonda)</option>
+                            <option value="Raleway">Raleway (Elegante)</option>
+                          </select>
+                        </div>
+
+                        {/* Peso (bold/normal) */}
+                        <div className="space-y-1">
+                          <label className="text-gray-300 text-xs">Negrito</label>
+                          <select
+                            value={pages[currentPage].elements.find(el => el.id === selectedElement)?.fontWeight || 'normal'}
+                            onChange={(e) => handleElementChange(selectedElement, { fontWeight: e.target.value })}
+                            className="w-full bg-gray-700 text-white border border-gray-600 rounded px-1 py-0.5 text-xs"
+                          >
+                            <option value="normal">Normal</option>
+                            <option value="bold">Negrito</option>
+                          </select>
+                        </div>
+
+                        {/* Itálico */}
+                        <div className="space-y-1">
+                          <label className="text-gray-300 text-xs">Itálico</label>
+                          <select
+                            value={pages[currentPage].elements.find(el => el.id === selectedElement)?.fontStyle || 'normal'}
+                            onChange={(e) => handleElementChange(selectedElement, { fontStyle: e.target.value })}
+                            className="w-full bg-gray-700 text-white border border-gray-600 rounded px-1 py-0.5 text-xs"
+                          >
+                            <option value="normal">Normal</option>
+                            <option value="italic">Itálico</option>
+                          </select>
+                        </div>
+
+                        {/* Alinhamento */}
+                        <div className="space-y-1">
+                          <label className="text-gray-300 text-xs">Alinhamento</label>
+                          <select
+                            value={pages[currentPage].elements.find(el => el.id === selectedElement)?.textAlign || 'left'}
+                            onChange={(e) => handleElementChange(selectedElement, { textAlign: e.target.value })}
+                            className="w-full bg-gray-700 text-white border border-gray-600 rounded px-1 py-0.5 text-xs"
+                          >
+                            <option value="left">Esquerda</option>
+                            <option value="center">Centro</option>
+                            <option value="right">Direita</option>
+                          </select>
+                        </div>
+
+                        {/* Cor do Texto */}
+                        <div className="space-y-1">
+                          <label className="text-gray-300 text-xs">Cor do Texto</label>
+                          <input
+                            type="color"
+                            value={pages[currentPage].elements.find(el => el.id === selectedElement)?.color || '#000000'}
+                            onChange={(e) => handleElementChange(selectedElement, { color: e.target.value })}
+                            className="w-full"
+                          />
                         </div>
 
                         <div className="space-y-1">

@@ -117,7 +117,7 @@ universeteca-cms/
 │   └── editor/
 │       ├── CanvasEditor.js    # Editor principal
 │       ├── MediaLibrary.js    # Biblioteca de mídia
-│       └── Timeline.js        # Controle de timeline
+│       └── StepContoler.js        # Controle de StepContoler
 ├── pages/
 │   └── books/
 │       └── [id]/

@@ -1,7 +1,7 @@
 import React from 'react';
 import { FiPlay, FiPause, FiSkipBack, FiSkipForward, FiPlus, FiTrash2 } from 'react-icons/fi';
 
-const Timeline = ({
+const StepContoler = ({
   currentStep,
   maxSteps,
   onStepChange,
@@ -66,7 +66,7 @@ const Timeline = ({
         </div>
       </div>
       
-      {/* Timeline Vertical */}
+      {/* StepContoler Vertical */}
       <div className="flex-1 relative bg-gray-900 overflow-y-auto p-2">
         <div className="flex flex-col h-full">
           {/* Frames/Etapas */}
@@ -116,4 +116,4 @@ const Timeline = ({
   );
 };
 
-export default Timeline; 
+export default StepContoler; 
