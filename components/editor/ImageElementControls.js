@@ -38,17 +38,17 @@ const ImageElementControls = ({
               isLocked: !element.isLocked 
             });
           }}
-          className={`p-1 rounded-full ${
+          className={`p-1 rounded-full transition-all duration-200 ${
             element.isLocked 
-              ? 'bg-red-100 hover:bg-red-200' 
-              : 'hover:bg-blue-100'
+              ? 'bg-red-100 hover:bg-red-200 text-red-600' 
+              : 'hover:bg-blue-100 text-blue-600'
           }`}
           title={element.isLocked ? "Desbloquear elemento" : "Bloquear elemento"}
         >
           {element.isLocked ? (
-            <FiLock className="text-red-600" size={14} />
+            <FiLock size={14} />
           ) : (
-            <FiUnlock className="text-blue-600" size={14} />
+            <FiUnlock size={14} />
           )}
         </button>
 

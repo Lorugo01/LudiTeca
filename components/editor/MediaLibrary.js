@@ -1,11 +1,16 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { createClient } from '@supabase/supabase-js';
-import { FiFolder, FiImage, FiMusic, FiVideo, FiFile, FiFilePlus, FiTrash2, FiArrowLeft, FiSearch, FiUpload, FiPlusCircle, FiMove } from 'react-icons/fi';
+import { FiFolder, FiImage, FiMusic, FiVideo, FiFile, FiFilePlus, FiTrash2, FiArrowLeft, FiSearch, FiUpload, FiPlusCircle, FiMove, FiRefreshCw } from 'react-icons/fi';
+import { useAuth } from '../../contexts/auth';
 
 // Initialize Supabase client
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+// Cache para armazenar os metadados dos arquivos
+const fileMetadataCache = new Map();
+const CACHE_EXPIRATION = 5 * 60 * 1000; // 5 minutos
 
 // Mapeamento de tipos de mídia para buckets
 const BUCKET_MAP = {
@@ -18,6 +23,7 @@ const BUCKET_MAP = {
 };
 
 const MediaLibrary = ({ onSelect, mediaType = 'image' }) => {
+  const { user } = useAuth();
   const [files, setFiles] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -32,28 +38,89 @@ const MediaLibrary = ({ onSelect, mediaType = 'image' }) => {
   const [showMoveDialog, setShowMoveDialog] = useState(false);
   const [targetFolder, setTargetFolder] = useState('');
   const [availableFolders, setAvailableFolders] = useState([]);
+  const [lastRefresh, setLastRefresh] = useState(Date.now());
   
   // Determine which bucket to use based on media type
   const bucketName = BUCKET_MAP[mediaType] || 'covers';
-  
+
+  // Ajuste para pasta do usuário no bucket covers
+  const userRootFolder = useMemo(() => {
+    if (bucketName === 'covers' && user) {
+      return user.id;
+    }
+    return '';
+  }, [bucketName, user]);
+
+  // currentFolder sempre relativo à pasta do usuário em covers
+  const effectiveCurrentFolder = useMemo(() => {
+    if (bucketName === 'covers' && user) {
+      return currentFolder ? `${userRootFolder}/${currentFolder}` : userRootFolder;
+    }
+    return currentFolder;
+  }, [bucketName, user, userRootFolder, currentFolder]);
+
+  // Função para limpar o cache
+  const clearCache = useCallback(() => {
+    fileMetadataCache.clear();
+  }, []);
+
+  // Função para verificar se o cache está expirado
+  const isCacheExpired = useCallback(() => {
+    return Date.now() - lastRefresh > CACHE_EXPIRATION;
+  }, [lastRefresh]);
+
+  // Função para obter metadados do cache ou do banco
+  const getFileMetadata = useCallback(async (filePath) => {
+    if (!user) return null;
+
+    const cacheKey = `${user.id}-${filePath}`;
+    const cachedData = fileMetadataCache.get(cacheKey);
+
+    if (cachedData && !isCacheExpired()) {
+      return cachedData;
+    }
+
+    const { data, error } = await supabase
+      .from('media_files')
+      .select('*')
+      .eq('file_path', filePath)
+      .eq('user_id', user.id)
+      .single();
+
+    if (error) {
+      console.error('Erro ao buscar metadados:', error);
+      return null;
+    }
+
+    if (data) {
+      fileMetadataCache.set(cacheKey, data);
+    }
+
+    return data;
+  }, [user, isCacheExpired]);
+
   // Load files when component mounts or folder/bucket changes
   useEffect(() => {
-    loadFiles();
-  }, [currentFolder, bucketName, mediaType]);
+    if (user) {
+      loadFiles();
+    }
+  }, [effectiveCurrentFolder, bucketName, mediaType, user]);
 
   // Function to load files from Supabase storage
   const loadFiles = async () => {
+    if (!user) return;
+
     try {
       setLoading(true);
       setError(null);
 
-      console.log(`Loading files from bucket: ${bucketName}, folder: ${currentFolder}`);
+      console.log(`Loading files from bucket: ${bucketName}, folder: ${effectiveCurrentFolder}`);
 
       // List files in the current folder
       const { data, error } = await supabase
         .storage
         .from(bucketName)
-        .list(currentFolder, {
+        .list(effectiveCurrentFolder, {
           sortBy: { column: 'name', order: 'asc' },
         });
 
@@ -68,12 +135,11 @@ const MediaLibrary = ({ onSelect, mediaType = 'image' }) => {
           return {
             ...item,
             type: 'folder',
-            path: currentFolder ? `${currentFolder}/${item.name}` : item.name,
+            path: effectiveCurrentFolder ? `${effectiveCurrentFolder}/${item.name}` : item.name,
           };
         }
 
         // Process files
-        // Get file type from metadata or extension
         const extension = item.name.split('.').pop().toLowerCase();
         let type = 'other';
 
@@ -93,17 +159,28 @@ const MediaLibrary = ({ onSelect, mediaType = 'image' }) => {
         const { data: publicUrl } = supabase
           .storage
           .from(bucketName)
-          .getPublicUrl(currentFolder ? `${currentFolder}/${item.name}` : item.name);
+          .getPublicUrl(effectiveCurrentFolder ? `${effectiveCurrentFolder}/${item.name}` : item.name);
+
+        // Get file metadata using cache
+        const metadata = await getFileMetadata(effectiveCurrentFolder ? `${effectiveCurrentFolder}/${item.name}` : item.name);
 
         return {
           ...item,
           type,
           url: publicUrl.publicUrl,
-          path: currentFolder ? `${currentFolder}/${item.name}` : item.name,
+          path: effectiveCurrentFolder ? `${effectiveCurrentFolder}/${item.name}` : item.name,
+          metadata: metadata || null,
+          user_id: user.id
         };
       }));
 
-      setFiles(processedFiles);
+      // Filter files to show only user's files
+      const userFiles = processedFiles.filter(file => 
+        file.type === 'folder' || (file.metadata && file.metadata.user_id === user.id)
+      );
+
+      setFiles(userFiles);
+      setLastRefresh(Date.now());
     } catch (err) {
       console.error('Error loading files:', err);
       setError(`Failed to load files: ${err.message}`);
@@ -112,8 +189,15 @@ const MediaLibrary = ({ onSelect, mediaType = 'image' }) => {
     }
   };
 
+  // Função para atualizar a lista de arquivos
+  const refreshFiles = useCallback(() => {
+    clearCache();
+    loadFiles();
+  }, [clearCache, loadFiles]);
+
   // Handle file delete
   const handleDeleteFile = async (file) => {
+    if (!user) return;
     if (!confirm(`Are you sure you want to delete ${file.name}?`)) {
       return;
     }
@@ -122,13 +206,25 @@ const MediaLibrary = ({ onSelect, mediaType = 'image' }) => {
       setLoading(true);
       setError(null);
 
-      const { error } = await supabase
+      // Delete file from storage
+      const { error: storageError } = await supabase
         .storage
         .from(bucketName)
         .remove([file.path]);
 
-      if (error) {
-        throw new Error(error.message);
+      if (storageError) {
+        throw new Error(storageError.message);
+      }
+
+      // Delete file metadata from media_files table
+      const { error: metadataError } = await supabase
+        .from('media_files')
+        .delete()
+        .eq('file_path', file.path)
+        .eq('user_id', user.id);
+
+      if (metadataError) {
+        throw new Error(metadataError.message);
       }
 
       // Reload files after deletion
@@ -217,9 +313,7 @@ const MediaLibrary = ({ onSelect, mediaType = 'image' }) => {
       setError(null);
 
       // Create an empty file in the folder to make it exist
-      const folderPath = currentFolder 
-        ? `${currentFolder}/${newFolderName}/.folder` 
-        : `${newFolderName}/.folder`;
+      const folderPath = effectiveCurrentFolder ? `${effectiveCurrentFolder}/${newFolderName}/.folder` : `${newFolderName}/.folder`;
 
       const { error } = await supabase
         .storage
@@ -242,52 +336,62 @@ const MediaLibrary = ({ onSelect, mediaType = 'image' }) => {
 
   // Handle file upload
   const handleFileUpload = async (e) => {
-    const uploadFiles = Array.from(e.target.files);
-    
-    if (uploadFiles.length === 0) return;
+    if (!user) return;
+
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
 
     try {
       setLoading(true);
       setError(null);
-      setUploadProgress({});
 
-      // Upload each file
-      await Promise.all(uploadFiles.map(async (file) => {
-        const filePath = currentFolder 
-          ? `${currentFolder}/${file.name}` 
-          : file.name;
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        
+        // Verificar tamanho do arquivo para áudio
+        if (mediaType === 'audio' && file.size > 50 * 1024 * 1024) { // 50MB
+          throw new Error(`O arquivo ${file.name} excede o limite de 50MB permitido para áudios.`);
+        }
 
-        // Create a new progress tracker for this file
-        setUploadProgress(prev => ({
-          ...prev,
-          [file.name]: 0
-        }));
+        const filePath = effectiveCurrentFolder ? `${effectiveCurrentFolder}/${file.name}` : file.name;
 
-        const { error } = await supabase
+        // Upload file to storage
+        const { error: uploadError } = await supabase
           .storage
           .from(bucketName)
           .upload(filePath, file, {
             cacheControl: '3600',
-            upsert: true,
-            onUploadProgress: (progress) => {
-              const percent = Math.round((progress.loaded / progress.total) * 100);
-              setUploadProgress(prev => ({
-                ...prev,
-                [file.name]: percent
-              }));
-            }
+            upsert: false
           });
 
-        if (error) {
-          throw new Error(`Error uploading ${file.name}: ${error.message}`);
+        if (uploadError) {
+          throw new Error(uploadError.message);
         }
-      }));
 
-      setShowUploadForm(false);
+        // Save file metadata to media_files table
+        const { error: metadataError } = await supabase
+          .from('media_files')
+          .insert({
+            user_id: user.id,
+            file_path: filePath,
+            file_name: file.name,
+            file_type: file.type,
+            file_size: file.size,
+            bucket_name: bucketName,
+            created_at: new Date().toISOString()
+          });
+
+        if (metadataError) {
+          throw new Error(metadataError.message);
+        }
+      }
+
+      // Reload files after upload
       loadFiles();
     } catch (err) {
-      console.error('Error uploading files:', err);
-      setError(`Upload failed: ${err.message}`);
+      console.error('Error uploading file:', err);
+      setError(`Falha ao fazer upload do arquivo: ${err.message}`);
+    } finally {
       setLoading(false);
     }
   };
@@ -452,11 +556,109 @@ const MediaLibrary = ({ onSelect, mediaType = 'image' }) => {
     }
   }, [showMoveDialog]);
 
+  // Função para formatar o tamanho do arquivo
+  const formatFileSize = (bytes) => {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  };
+
+  // Função para formatar a data
+  const formatDate = (dateString) => {
+    const date = new Date(dateString);
+    return new Intl.DateTimeFormat('pt-BR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    }).format(date);
+  };
+
+  // Função para pré-visualizar arquivos
+  const renderFilePreview = (file) => {
+    switch (file.type) {
+      case 'image':
+      case 'gif':
+        return (
+          <div className="relative group">
+            <img 
+              src={file.url} 
+              alt={file.name}
+              className="object-cover w-full h-full"
+            />
+            <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-30 transition-all duration-200 flex items-center justify-center">
+              <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-200 text-white text-xs">
+                {formatFileSize(file.metadata?.file_size || 0)}
+              </div>
+            </div>
+          </div>
+        );
+      case 'audio':
+        return (
+          <div className="flex items-center justify-center w-full h-full bg-gray-100">
+            <audio 
+              src={file.url} 
+              controls 
+              className="w-full"
+              onClick={(e) => e.stopPropagation()}
+            />
+          </div>
+        );
+      case 'video':
+        return (
+          <div className="relative group">
+            <video 
+              src={file.url} 
+              className="w-full h-full object-cover"
+              controls
+              onClick={(e) => e.stopPropagation()}
+            />
+            <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-30 transition-all duration-200 flex items-center justify-center">
+              <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-200 text-white text-xs">
+                {formatFileSize(file.metadata?.file_size || 0)}
+              </div>
+            </div>
+          </div>
+        );
+      default:
+        return (
+          <div className="flex items-center justify-center w-full h-full bg-gray-100">
+            {getFileIcon(file.type)}
+          </div>
+        );
+    }
+  };
+
+  // Função para renderizar informações do arquivo
+  const renderFileInfo = (file) => {
+    if (file.type === 'folder') return null;
+
+    return (
+      <div className="absolute bottom-0 left-0 right-0 bg-black bg-opacity-50 text-white p-2 text-xs opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+        <div className="truncate">{file.name}</div>
+        <div className="flex justify-between text-gray-300">
+          <span>{formatFileSize(file.metadata?.file_size || 0)}</span>
+          <span>{formatDate(file.metadata?.created_at)}</span>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="p-4 bg-white rounded-lg shadow max-h-[80vh] overflow-y-auto">
       <div className="flex justify-between items-center mb-4">
         <h3 className="text-lg font-medium">{getMediaTypeTitle()} - Bucket: {bucketName}</h3>
         <div className="flex space-x-2">
+          <button
+            onClick={refreshFiles}
+            className="px-2 py-1 bg-gray-100 rounded text-sm hover:bg-gray-200 flex items-center"
+            title="Atualizar lista"
+          >
+            <FiRefreshCw className="mr-1" /> Atualizar
+          </button>
           <button
             onClick={() => setShowFolderForm(true)}
             className="px-2 py-1 bg-gray-100 rounded text-sm hover:bg-gray-200 flex items-center"
@@ -551,7 +753,7 @@ const MediaLibrary = ({ onSelect, mediaType = 'image' }) => {
             </label>
             <div className="text-xs text-gray-500 text-center">
               {mediaType === 'image' || mediaType === 'background' ? 'Suporta imagens e GIFs' : 
-               mediaType === 'audio' ? 'Suporta arquivos de áudio (MP3, WAV, OGG)' :
+               mediaType === 'audio' ? 'Suporta arquivos de áudio (MP3, WAV, OGG) até 50MB' :
                'Suporta múltiplos tipos de arquivos'}
             </div>
             <button
@@ -584,14 +786,21 @@ const MediaLibrary = ({ onSelect, mediaType = 'image' }) => {
       )}
 
       {loading && filteredFiles.length === 0 ? (
-        <div className="p-8 text-center text-gray-500">Carregando...</div>
+        <div className="p-8 text-center text-gray-500">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto mb-2"></div>
+          Carregando...
+        </div>
       ) : filteredFiles.length === 0 ? (
         <div className="p-8 text-center text-gray-500">
-          Nenhum arquivo encontrado.
+          <FiFile className="mx-auto h-12 w-12 text-gray-400 mb-2" />
+          <p>Nenhum arquivo encontrado.</p>
+          <p className="text-sm text-gray-400 mt-1">
+            {searchQuery ? 'Tente uma busca diferente' : 'Faça upload de arquivos ou crie uma pasta'}
+          </p>
         </div>
       ) : (
         <div className="space-y-4">
-          {/* Folders (always appear first) */}
+          {/* Folders */}
           {groupedFiles.folders.length > 0 && (
             <div>
               <h4 className="font-medium text-gray-700 mb-2">Pastas</h4>
@@ -600,7 +809,7 @@ const MediaLibrary = ({ onSelect, mediaType = 'image' }) => {
                   <div 
                     key={folder.id || folder.name}
                     onClick={() => goToFolder(folder.path)}
-                    className="flex items-center p-2 bg-gray-50 rounded hover:bg-gray-100 cursor-pointer"
+                    className="flex items-center p-2 bg-gray-50 rounded hover:bg-gray-100 cursor-pointer group"
                   >
                     <FiFolder className="mr-2 text-yellow-500" />
                     <span className="truncate text-sm">{folder.name}</span>
@@ -610,7 +819,7 @@ const MediaLibrary = ({ onSelect, mediaType = 'image' }) => {
             </div>
           )}
 
-          {/* Images and GIFs (grid format) */}
+          {/* Images and GIFs */}
           {(groupedFiles.images.length > 0 || groupedFiles.gifs.length > 0) && (
             <div>
               <h4 className="font-medium text-gray-700 mb-2">Imagens</h4>
@@ -621,25 +830,13 @@ const MediaLibrary = ({ onSelect, mediaType = 'image' }) => {
                     className={`relative group rounded border ${selectedFile === file.id ? 'border-blue-500 ring-2 ring-blue-300' : 'border-gray-200'} overflow-hidden`}
                   >
                     <div 
-                      className="aspect-square bg-gray-100 overflow-hidden flex items-center justify-center cursor-pointer"
+                      className="aspect-square bg-gray-100 overflow-hidden cursor-pointer"
                       onClick={() => handleSelect(file)}
                       onDoubleClick={() => handleDoubleClick(file)}
                     >
-                      {file.url ? (
-                        <img 
-                          src={file.url} 
-                          alt={file.name}
-                          className="object-cover w-full h-full"
-                        />
-                      ) : (
-                        <div className="flex items-center justify-center w-full h-full bg-gray-200">
-                          <FiImage className="text-gray-400" size={24} />
-                        </div>
-                      )}
+                      {renderFilePreview(file)}
                     </div>
-                    <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-30 transition-all duration-200 flex items-center justify-center pointer-events-none">
-                    </div>
-                    <div className="px-1 py-0.5 text-xs truncate">{file.name}</div>
+                    {renderFileInfo(file)}
                   </div>
                 ))}
               </div>
@@ -654,13 +851,18 @@ const MediaLibrary = ({ onSelect, mediaType = 'image' }) => {
                 {groupedFiles.audio.map(file => (
                   <div 
                     key={file.id || file.name}
-                    className={`flex items-center justify-between p-2 ${selectedFile === file.id ? 'bg-blue-50 border border-blue-200' : 'bg-gray-50 hover:bg-gray-100'} rounded cursor-pointer`}
+                    className={`flex items-center justify-between p-2 ${selectedFile === file.id ? 'bg-blue-50 border border-blue-200' : 'bg-gray-50 hover:bg-gray-100'} rounded cursor-pointer group`}
                     onClick={() => handleSelect(file)}
                     onDoubleClick={() => handleDoubleClick(file)}
                   >
                     <div className="flex items-center space-x-2 truncate">
                       <FiMusic className="text-blue-500" />
-                      <span className="truncate text-sm">{file.name}</span>
+                      <div className="flex flex-col">
+                        <span className="truncate text-sm">{file.name}</span>
+                        <span className="text-xs text-gray-500">
+                          {formatFileSize(file.metadata?.file_size || 0)} • {formatDate(file.metadata?.created_at)}
+                        </span>
+                      </div>
                     </div>
                     <div className="flex items-center">
                       <audio 
@@ -688,13 +890,18 @@ const MediaLibrary = ({ onSelect, mediaType = 'image' }) => {
                   {files.map(file => (
                     <div 
                       key={file.id || file.name}
-                      className={`flex items-center justify-between p-2 ${selectedFile === file.id ? 'bg-blue-50 border border-blue-200' : 'bg-gray-50 hover:bg-gray-100'} rounded cursor-pointer`}
+                      className={`flex items-center justify-between p-2 ${selectedFile === file.id ? 'bg-blue-50 border border-blue-200' : 'bg-gray-50 hover:bg-gray-100'} rounded cursor-pointer group`}
                       onClick={() => handleSelect(file)}
                       onDoubleClick={() => handleDoubleClick(file)}
                     >
                       <div className="flex items-center space-x-2 truncate">
                         {getFileIcon(file.type)}
-                        <span className="truncate text-sm">{file.name}</span>
+                        <div className="flex flex-col">
+                          <span className="truncate text-sm">{file.name}</span>
+                          <span className="text-xs text-gray-500">
+                            {formatFileSize(file.metadata?.file_size || 0)} • {formatDate(file.metadata?.created_at)}
+                          </span>
+                        </div>
                       </div>
                     </div>
                   ))}

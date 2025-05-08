@@ -1,17 +1,16 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Rnd } from 'react-rnd';
-import { FiType, FiImage, FiMusic, FiTrash2, FiCopy, FiChevronUp, FiChevronDown, FiPlay, FiRefreshCw, FiMaximize, FiSquare, FiMove, FiGrid } from 'react-icons/fi';
+import { FiType, FiImage, FiMusic, FiTrash2, FiCopy, FiChevronUp, FiChevronDown, FiPlay, FiRefreshCw, FiMaximize, FiSquare, FiMove, FiGrid, FiLayers, FiChevronLeft, FiSave, FiPlus, FiEye, FiEyeOff, FiChevronRight, FiBook, FiEdit, FiX } from 'react-icons/fi';
 import MediaLibrary from './MediaLibrary';
 import supabase from '../../lib/supabase';
 import 'animate.css'; // Importar a biblioteca de animações
 import TextElementControls from './TextElementControls';
 import ImageElementControls from './ImageElementControls';
+import LayerManager from './LayerManager';
 
 // Dimensões fixas para o canvas (resolução padrão do livro)
 const CANVAS_WIDTH = 1280;
 const CANVAS_HEIGHT = 720;
-
-
 
 // Dimensões do viewport (área visível no app)
 const VIEWPORT_WIDTH = 800;
@@ -97,6 +96,7 @@ const CanvasEditor = React.memo(({
   const [showGrid, setShowGrid] = useState(false);
   const [showRealSizePreview, setShowRealSizePreview] = useState(false);
   const containerRef = useRef(null);
+  const canvasRef = useRef(null);
   
   // Remove local background state, use page.background directly
   const [showMediaLibrary, setShowMediaLibrary] = useState(false);
@@ -108,6 +108,12 @@ const CanvasEditor = React.memo(({
   
   const [clickCount, setClickCount] = useState({});
   const clickTimeout = useRef(null);
+  
+  // Adicionar novos estados
+  const [showLayerManager, setShowLayerManager] = useState(false);
+  
+  const [isDragging, setIsDragging] = useState(false);
+  const [isMovingAudioButton, setIsMovingAudioButton] = useState(false);
   
   // Efeito para calcular a escala do canvas com base no tamanho do contêiner
   useEffect(() => {
@@ -420,244 +426,555 @@ const CanvasEditor = React.memo(({
     }, 1000);
   }, [clickCount, setSelectedElement]);
   
-  return (
-    <div className="flex flex-col h-full">
-      {/* Área do editor com escala adaptativa */}
-      <div 
-        ref={containerRef}
-        className="relative flex-grow flex items-center justify-center bg-gray-900 overflow-auto"
-      >
-        <div 
-          className="relative bg-white"
-          style={{
-            width: `${CANVAS_WIDTH}px`,
-            height: `${CANVAS_HEIGHT}px`,
-            transform: `scale(${scale})`,
-            transformOrigin: 'center',
-            transition: 'transform 0.2s ease'
-          }}
-          onClick={() => !isPreviewMode && setSelectedElement(null)}
-        >
-          {/* Background da página */}
-          <div 
-            className="absolute inset-0 w-full h-full"
+  // Adicionar novas funções
+  const handleToggleVisibility = useCallback((id) => {
+    handleElementChange(id, { isVisible: !page.elements?.find(el => el.id === id)?.isVisible });
+  }, [handleElementChange, page.elements]);
+
+  const handleLockElement = useCallback((id) => {
+    handleElementChange(id, { isLocked: !page.elements?.find(el => el.id === id)?.isLocked });
+  }, [handleElementChange, page.elements]);
+  
+  const handleMouseDown = (e, elementId) => {
+    if (isPreviewMode) return;
+    
+    const element = page.elements.find(el => el.id === elementId);
+    if (!element) return;
+
+    // Verificar se clicou no botão de áudio
+    const target = e.target;
+    if (target.closest('.audio-button')) {
+      e.stopPropagation();
+      
+      // Encontrar o elemento pai mais próximo que seja um elemento do canvas
+      const elementContainer = target.closest('[id^="el-"]');
+      if (!elementContainer) return;
+      
+      const elementRect = elementContainer.getBoundingClientRect();
+      const startX = e.clientX;
+      const startY = e.clientY;
+      const startPos = {
+        x: element.audioButtonPosition?.x || (element.size.width - 40),
+        y: element.audioButtonPosition?.y || 8
+      };
+
+      const handleMouseMove = (moveEvent) => {
+        const deltaX = moveEvent.clientX - startX;
+        const deltaY = moveEvent.clientY - startY;
+        
+        // Calcular a nova posição relativa ao elemento
+        // Limitando a posição para manter o botão ao redor do elemento
+        const padding = 20; // Espaçamento mínimo do botão em relação ao elemento
+        const buttonSize = 40; // Tamanho do botão
+        
+        // Calcula os limites do elemento
+        const minX = -buttonSize - padding;
+        const maxX = elementRect.width + padding;
+        const minY = -buttonSize - padding;
+        const maxY = elementRect.height + padding;
+        
+        // Calcula a nova posição
+        let newX = startPos.x + (deltaX / scale);
+        let newY = startPos.y + (deltaY / scale);
+        
+        // Ajusta a posição para manter o botão ao redor do elemento
+        if (newX < minX) newX = minX;
+        if (newX > maxX) newX = maxX;
+        if (newY < minY) newY = minY;
+        if (newY > maxY) newY = maxY;
+
+        onElementChange(elementId, {
+          audioButtonPosition: {
+            x: newX,
+            y: newY
+          }
+        });
+      };
+
+      const handleMouseUp = () => {
+        document.removeEventListener('mousemove', handleMouseMove);
+        document.removeEventListener('mouseup', handleMouseUp);
+      };
+
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+      return;
+    }
+
+    // Código para mover o elemento
+    setIsDragging(true);
+    setSelectedElement(elementId);
+    
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const startPos = { ...element.position };
+
+    const handleMouseMove = (moveEvent) => {
+      const deltaX = moveEvent.clientX - startX;
+      const deltaY = moveEvent.clientY - startY;
+
+      onChange({
+        ...page,
+        elements: page.elements.map(el =>
+          el.id === elementId
+            ? {
+                ...el,
+                position: {
+                  x: startPos.x + deltaX,
+                  y: startPos.y + deltaY,
+                },
+              }
+            : el
+        ),
+      });
+    };
+
+    const handleMouseUp = () => {
+      setIsDragging(false);
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+  };
+
+  const renderElement = (element) => {
+    if (currentStep < (element.step || 0)) return null;
+
+    const style = {
+      position: 'absolute',
+      left: `${element.position.x}px`,
+      top: `${element.position.y}px`,
+      width: element.size.width === 'auto' ? 'auto' : `${element.size.width}px`,
+      height: element.size.height === 'auto' ? 'auto' : `${element.size.height}px`,
+      cursor: isPreviewMode ? 'default' : 'move',
+      userSelect: 'none',
+      border: selectedElement === element.id && !isPreviewMode ? '2px solid #3b82f6' : 'none',
+      padding: '2px',
+    };
+
+    let content;
+    switch (element.type) {
+      case 'text':
+        content = (
+          <div
             style={{
-              backgroundImage: page.background 
-                ? `url(${typeof page.background === 'string' ? page.background : page.background.url})`
-                : 'none',
-              backgroundSize: 'cover',
-              backgroundPosition: page.background?.position 
-                ? `${page.background.position.x * 100}% ${page.background.position.y * 100}%` 
-                : 'center',
-              backgroundRepeat: 'no-repeat',
-              transform: page.background?.scale ? `scale(${page.background.scale})` : 'none',
-              transformOrigin: 'center'
+              ...style,
+              fontSize: `${element.fontSize || 16}px`,
+              fontFamily: element.fontFamily || 'Roboto',
+              fontWeight: element.fontWeight || 'normal',
+              fontStyle: element.fontStyle || 'normal',
+              textAlign: element.textAlign || 'left',
+              color: element.color || '#000000',
+              position: 'relative',
             }}
-          />
-          {/* Render all elements */}
-          {getVisibleElements(page.elements, currentStep).map(element => (
-            <Rnd
-              key={element.id}
-              default={{
-                x: element.position?.x || 0,
-                y: element.position?.y || 0,
-                width: element.size?.width || 100,
-                height: element.type === 'image' 
-                  ? element.size?.height || 100 
-                  : element.size?.height === 'auto' ? 'auto' : element.size?.height || 'auto'
+            id={`el-${element.id}`}
+            onMouseDown={(e) => handleMouseDown(e, element.id)}
+            className={`element ${element.animation || ''}`}
+          >
+            {element.content}
+            
+            {/* Botão de áudio para texto */}
+            {element.audio && (
+              <div
+                className="audio-button"
+                style={{
+                  position: 'absolute',
+                  left: `${element.audioButtonPosition?.x || (element.size.width - 40)}px`,
+                  top: `${element.audioButtonPosition?.y || 8}px`,
+                  backgroundColor: 'rgba(0, 0, 0, 0.5)',
+                  borderRadius: '50%',
+                  padding: '8px',
+                  cursor: 'move',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  transition: 'background-color 0.2s',
+                  zIndex: 1000,
+                  width: '40px',
+                  height: '40px',
+                  transform: 'translate(-50%, -50%)', // Centraliza o botão no ponto de clique
+                }}
+                onMouseDown={(e) => handleMouseDown(e, element.id)}
+              >
+                <FiMusic color="white" size={20} />
+              </div>
+            )}
+          </div>
+        );
+        break;
+
+      case 'image':
+        content = (
+          <div
+            style={{
+              ...style,
+              overflow: 'hidden',
+              borderRadius: `${element.imageStyle?.borderRadius || 0}px`,
+            }}
+            id={`el-${element.id}`}
+            onMouseDown={(e) => handleMouseDown(e, element.id)}
+            className={`element ${element.animation || ''}`}
+          >
+            <img
+              src={element.content}
+              alt="Content"
+              style={{
+                width: '100%',
+                height: '100%',
+                objectFit: element.imageStyle?.objectFit || 'cover',
+                transform: `
+                  rotate(${element.rotation || 0}deg)
+                  scaleX(${element.flipH ? -1 : 1})
+                  scaleY(${element.flipV ? -1 : 1})
+                `,
               }}
-              position={{ x: element.position?.x || 0, y: element.position?.y || 0 }}
-              size={{ 
-                width: element.size?.width || 100, 
-                height: element.type === 'image' 
-                  ? element.size?.height || 100 
-                  : element.size?.height === 'auto' ? 'auto' : element.size?.height || 'auto'
+            />
+            
+            {/* Botão de áudio para imagem */}
+            {element.audio && (
+              <div
+                className="audio-button"
+                style={{
+                  position: 'absolute',
+                  left: `${element.audioButtonPosition?.x || (element.size.width - 40)}px`,
+                  top: `${element.audioButtonPosition?.y || 8}px`,
+                  backgroundColor: 'rgba(0, 0, 0, 0.5)',
+                  borderRadius: '50%',
+                  padding: '8px',
+                  cursor: 'move',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  transition: 'background-color 0.2s',
+                  zIndex: 1000,
+                  width: '40px',
+                  height: '40px',
+                  transform: 'translate(-50%, -50%)', // Centraliza o botão no ponto de clique
+                }}
+                onMouseDown={(e) => handleMouseDown(e, element.id)}
+              >
+                <FiMusic color="white" size={20} />
+              </div>
+            )}
+          </div>
+        );
+        break;
+
+      default:
+        content = null;
+    }
+
+    return content;
+  };
+
+  return (
+    <div className="relative w-full h-full">
+      {/* Área do editor com escala adaptativa */}
+      <div className="flex flex-1">
+        {/* Canvas */}
+        <div 
+          ref={containerRef}
+          className="relative flex-grow flex items-center justify-center bg-gray-900 overflow-auto"
+        >
+          <div 
+            ref={canvasRef}
+            className="relative bg-white"
+            style={{
+              width: `${CANVAS_WIDTH}px`,
+              height: `${CANVAS_HEIGHT}px`,
+              transform: `scale(${scale})`,
+              transformOrigin: 'center',
+              transition: 'transform 0.2s ease'
+            }}
+            onClick={() => !isPreviewMode && setSelectedElement(null)}
+          >
+            {/* Background da página */}
+            <div 
+              className="absolute inset-0 w-full h-full"
+              style={{
+                backgroundImage: page.background 
+                  ? `url(${typeof page.background === 'string' ? page.background : page.background.url})`
+                  : 'none',
+                backgroundSize: 'cover',
+                backgroundPosition: page.background?.position 
+                  ? `${page.background.position.x * 100}% ${page.background.position.y * 100}%` 
+                  : 'center',
+                backgroundRepeat: 'no-repeat',
+                transform: page.background?.scale ? `scale(${page.background.scale})` : 'none',
+                transformOrigin: 'center'
               }}
-              onDragStop={(e, d) => {
-                handlePositionChange(element.id, { x: d.x, y: d.y });
-              }}
-              onResizeStop={(e, direction, ref, delta, position) => {
-                handleSizeChange(element.id, {
-                  width: ref.offsetWidth,
-                  height: ref.offsetHeight
-                });
-                handlePositionChange(element.id, position);
-              }}
-              onClick={(e) => handleElementClick(e, element)}
-              onDoubleClick={(e) => {
-                // Previne a seleção em double-click para elementos bloqueados
-                if (!element.isLocked) {
+            />
+            {/* Render all elements */}
+            {getVisibleElements(page.elements, currentStep).map(element => (
+              <Rnd
+                key={element.id}
+                default={{
+                  x: element.position?.x || 0,
+                  y: element.position?.y || 0,
+                  width: element.size?.width || 100,
+                  height: element.type === 'image' 
+                    ? element.size?.height || 100 
+                    : element.size?.height === 'auto' ? 'auto' : element.size?.height || 'auto'
+                }}
+                position={{ x: element.position?.x || 0, y: element.position?.y || 0 }}
+                size={{ 
+                  width: element.size?.width || 100, 
+                  height: element.type === 'image' 
+                    ? element.size?.height || 100 
+                    : element.size?.height === 'auto' ? 'auto' : element.size?.height || 'auto'
+                }}
+                onDragStop={(e, d) => {
+                  if (!element.isLocked) {
+                    handlePositionChange(element.id, { x: d.x, y: d.y });
+                  }
+                }}
+                onResizeStop={(e, direction, ref, delta, position) => {
+                  if (!element.isLocked) {
+                    handleSizeChange(element.id, {
+                      width: ref.offsetWidth,
+                      height: ref.offsetHeight
+                    });
+                    handlePositionChange(element.id, position);
+                  }
+                }}
+                onClick={(e) => handleElementClick(e, element)}
+                onDoubleClick={(e) => {
                   e.stopPropagation();
                   setSelectedElement && setSelectedElement(element.id);
-                }
-              }}
-              enableResizing={!isPreviewMode}
-              disableDragging={isPreviewMode}
-              className={`${
-                selectedElement === element.id && !isPreviewMode 
-                  ? 'ring-2 ring-blue-500 shadow-md border border-blue-300' 
-                  : 'hover:ring-1 hover:ring-blue-300'
-              } ${
-                element.isLocked && clickCount[element.id] > 0 
-                  ? `after:content-['${3 - (clickCount[element.id] || 0)} cliques para desbloquear'] 
-                     after:absolute after:top-0 after:left-1/2 after:-translate-x-1/2 after:-translate-y-full 
-                     after:bg-black after:text-white after:px-2 after:py-1 after:rounded after:text-xs 
-                     after:whitespace-nowrap after:opacity-75`
-                  : ''
-              }`}
-              style={{ 
-                zIndex: element.zIndex || 1,
-                cursor: isPreviewMode ? 'default' : 'move'
-              }}
-              bounds="parent"
-            >
-              <div 
-                id={`el-${element.id}`} 
-                className={`w-full h-full relative ${element.animation ? `animate__animated ${element.animation}` : ''}`}
+                }}
+                enableResizing={!isPreviewMode && !element.isLocked}
+                disableDragging={isPreviewMode || element.isLocked}
+                className={`${
+                  selectedElement === element.id && !isPreviewMode 
+                    ? 'ring-2 ring-blue-500 shadow-md border border-blue-300' 
+                    : element.isLocked 
+                      ? 'pointer-events-none' 
+                      : 'hover:ring-1 hover:ring-blue-300'
+                } ${
+                  element.isLocked 
+                    ? 'cursor-not-allowed' 
+                    : 'cursor-move'
+                } ${
+                  element.isLocked && clickCount[element.id] > 0 
+                    ? `after:content-['${3 - (clickCount[element.id] || 0)} cliques para desbloquear'] 
+                       after:absolute after:top-0 after:left-1/2 after:-translate-x-1/2 after:-translate-y-full 
+                       after:bg-black after:text-white after:px-2 after:py-1 after:rounded after:text-xs 
+                       after:whitespace-nowrap after:opacity-75`
+                    : ''
+                }`}
+                style={{ 
+                  zIndex: element.zIndex || 1,
+                  cursor: element.isLocked ? 'not-allowed' : isPreviewMode ? 'default' : 'move'
+                }}
+                bounds="parent"
               >
-                {/* Controles inline quando o elemento está selecionado */}
-                {selectedElement === element.id && !isPreviewMode && (
-                  <>
-                    {element.type === 'text' ? (
-                      <TextElementControls
-                        element={element}
-                        onPlayAnimation={onPlayAnimation}
-                        handleElementChange={handleElementChange}
-                        onDuplicateElement={onDuplicateElement}
-                        onMoveForward={onMoveForward}
-                        onMoveBackward={onMoveBackward}
-                        onRemoveElement={onRemoveElement}
-                      />
-                    ) : element.type === 'image' ? (
-                      <ImageElementControls
-                        element={element}
-                        onPlayAnimation={onPlayAnimation}
-                        handleElementChange={handleElementChange}
-                        onDuplicateElement={onDuplicateElement}
-                        onMoveForward={onMoveForward}
-                        onMoveBackward={onMoveBackward}
-                        onRemoveElement={onRemoveElement}
-                        onImageRotate={onImageRotate}
-                        onImageFlip={onImageFlip}
-                      />
-                    ) : null}
-                  </>
-                )}
+                <div 
+                  id={`el-${element.id}`} 
+                  className={`w-full h-full relative ${element.animation ? `animate__animated ${element.animation}` : ''}`}
+                >
+                  {/* Controles inline quando o elemento está selecionado */}
+                  {selectedElement === element.id && !isPreviewMode && (
+                    <>
+                      {element.type === 'text' ? (
+                        <TextElementControls
+                          element={element}
+                          onPlayAnimation={onPlayAnimation}
+                          handleElementChange={handleElementChange}
+                          onDuplicateElement={onDuplicateElement}
+                          onMoveForward={onMoveForward}
+                          onMoveBackward={onMoveBackward}
+                          onRemoveElement={onRemoveElement}
+                        />
+                      ) : element.type === 'image' ? (
+                        <ImageElementControls
+                          element={element}
+                          onPlayAnimation={onPlayAnimation}
+                          handleElementChange={handleElementChange}
+                          onDuplicateElement={onDuplicateElement}
+                          onMoveForward={onMoveForward}
+                          onMoveBackward={onMoveBackward}
+                          onRemoveElement={onRemoveElement}
+                          onImageRotate={onImageRotate}
+                          onImageFlip={onImageFlip}
+                        />
+                      ) : null}
+                    </>
+                  )}
 
-                {/* Text element - Aprimorado com estilos modernos */}
-                {element.type === 'text' && (
-                  <div
-                    id={`el-${element.id}`}
-                    className={`w-full h-full p-1 ${
-                      element.animation ? 'animate__animated ' + element.animation : ''
-                    }`}
-                    style={{
-                      position: 'relative',
-                      backgroundColor: element.textStyle === 'normal' ? 'transparent' : 'white',
-                      border: element.textStyle !== 'normal' ? '2px solid #ddd' : 'none',
-                      borderRadius: '8px',
-                      ...(element.textStyle === 'speech' && {
+                  {/* Text element */}
+                  {element.type === 'text' && (
+                    <div
+                      className={`w-full h-full p-1`}
+                      style={{
+                        position: 'relative',
+                        backgroundColor: element.textStyle === 'normal' ? 'transparent' : 'white',
+                        border: element.textStyle !== 'normal' ? '2px solid #ddd' : 'none',
                         borderRadius: '8px',
-                        padding: '12px',
-                        boxShadow: '0 2px 10px rgba(0, 0, 0, 0.08)'
-                      }),
-                      ...(element.textStyle === 'thought' && {
-                        borderRadius: '50%',
-                        padding: '12px',
-                        boxShadow: '0 2px 10px rgba(0, 0, 0, 0.08)'
-                      })
-                    }}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (!isPreviewMode) {
-                        setSelectedElement(element.id);
-                      }
-                    }}
-                    onDoubleClick={(e) => {
-                      e.stopPropagation();
-                      if (!isPreviewMode) {
-                        handleStartEditingText(element);
-                      }
-                    }}
-                  >
-                    {editingText === element.id ? (
-                      <textarea
-                        ref={textInputRef}
-                        value={editingTextValue}
-                        onChange={(e) => setEditingTextValue(e.target.value)}
-                        onBlur={handleFinishEditingText}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' && e.ctrlKey) {
-                            handleFinishEditingText();
-                          }
+                        ...(element.textStyle === 'speech' && {
+                          borderRadius: '8px',
+                          padding: '12px',
+                          boxShadow: '0 2px 10px rgba(0, 0, 0, 0.08)'
+                        }),
+                        ...(element.textStyle === 'thought' && {
+                          borderRadius: '50%',
+                          padding: '12px',
+                          boxShadow: '0 2px 10px rgba(0, 0, 0, 0.08)'
+                        })
+                      }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (!isPreviewMode) {
+                          setSelectedElement(element.id);
+                        }
+                      }}
+                      onDoubleClick={(e) => {
+                        e.stopPropagation();
+                        if (!isPreviewMode) {
+                          handleStartEditingText(element);
+                        }
+                      }}
+                    >
+                      {editingText === element.id ? (
+                        <textarea
+                          ref={textInputRef}
+                          value={editingTextValue}
+                          onChange={(e) => setEditingTextValue(e.target.value)}
+                          onBlur={handleFinishEditingText}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && e.ctrlKey) {
+                              handleFinishEditingText();
+                            }
+                          }}
+                          className="w-full h-full resize-none focus:outline-none focus:ring-1 focus:ring-blue-400"
+                          style={{
+                            fontFamily: element.fontFamily || 'Roboto',
+                            fontSize: element.fontSize ? `${element.fontSize}px` : '16px',
+                            fontWeight: element.fontWeight || 'normal',
+                            fontStyle: element.fontStyle || 'normal',
+                            textAlign: element.textAlign || 'left',
+                            color: element.color || '#000000',
+                            background: 'transparent',
+                            border: 'none'
+                          }}
+                          placeholder="Digite seu texto aqui"
+                          autoFocus
+                        />
+                      ) : (
+                        <div
+                          style={{
+                            fontFamily: element.fontFamily || 'Roboto',
+                            fontSize: element.fontSize ? `${element.fontSize}px` : '16px',
+                            fontWeight: element.fontWeight || 'normal',
+                            fontStyle: element.fontStyle || 'normal',
+                            textAlign: element.textAlign || 'left',
+                            color: element.color || '#000000'
+                          }}
+                        >
+                          {element.content}
+                        </div>
+                      )}
+                      {element.textStyle === 'speech' && !editingText && (
+                        <div className="absolute -bottom-4 -left-2 w-4 h-4 bg-white rotate-45 border-b-2 border-r-2 border-gray-300 shadow-sm"></div>
+                      )}
+                      {element.textStyle === 'thought' && !editingText && (
+                        <div className="absolute -bottom-2 -left-2 flex">
+                          <div className="w-3 h-3 bg-white rounded-full border border-gray-300 shadow-sm"></div>
+                          <div className="w-2 h-2 bg-white rounded-full border border-gray-300 -ml-1 mt-1 shadow-sm"></div>
+                        </div>
+                      )}
+                      
+                      {/* Botão de áudio para texto */}
+                      {element.audio && (
+                        <div
+                          className="audio-button"
+                          style={{
+                            position: 'absolute',
+                            left: `${element.audioButtonPosition?.x || (element.size.width - 40)}px`,
+                            top: `${element.audioButtonPosition?.y || 8}px`,
+                            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+                            borderRadius: '50%',
+                            padding: '8px',
+                            cursor: 'move',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            transition: 'background-color 0.2s',
+                            zIndex: 1000,
+                            width: '40px',
+                            height: '40px',
+                            transform: 'translate(-50%, -50%)', // Centraliza o botão no ponto de clique
+                          }}
+                          onMouseDown={(e) => handleMouseDown(e, element.id)}
+                        >
+                          <FiMusic color="white" size={20} />
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Image element */}
+                  {element.type === 'image' && (
+                    <div className="w-full h-full relative">
+                      <img 
+                        src={element.content} 
+                        alt="Content"
+                        className="w-full h-full"
+                        style={{ 
+                          transform: `
+                            rotate(${element.rotation || 0}deg)
+                            scaleX(${element.flipH ? -1 : 1})
+                            scaleY(${element.flipV ? -1 : 1})
+                          `,
+                          borderRadius: element.imageStyle?.borderRadius || '8px',
+                          objectFit: element.imageStyle?.objectFit || 'contain',
+                          backgroundColor: 'transparent'
                         }}
-                        className="w-full h-full resize-none focus:outline-none focus:ring-1 focus:ring-blue-400"
-                        style={{
-                          fontFamily: element.fontFamily || 'Roboto',
-                          fontSize: element.fontSize ? `${element.fontSize}px` : '16px',
-                          fontWeight: element.fontWeight || 'normal',
-                          fontStyle: element.fontStyle || 'normal',
-                          textAlign: element.textAlign || 'left',
-                          color: element.color || '#000000',
-                          background: 'transparent',
-                          border: 'none'
-                        }}
-                        placeholder="Digite seu texto aqui"
-                        autoFocus
                       />
-                    ) : (
-                      <div
-                        style={{
-                          fontFamily: element.fontFamily || 'Roboto',
-                          fontSize: element.fontSize ? `${element.fontSize}px` : '16px',
-                          fontWeight: element.fontWeight || 'normal',
-                          fontStyle: element.fontStyle || 'normal',
-                          textAlign: element.textAlign || 'left',
-                          color: element.color || '#000000'
-                        }}
-                      >
-                        {element.content}
-                      </div>
-                    )}
-                    {element.textStyle === 'speech' && !editingText && (
-                      <div className="absolute -bottom-4 -left-2 w-4 h-4 bg-white rotate-45 border-b-2 border-r-2 border-gray-300 shadow-sm"></div>
-                    )}
-                    {element.textStyle === 'thought' && !editingText && (
-                      <div className="absolute -bottom-2 -left-2 flex">
-                        <div className="w-3 h-3 bg-white rounded-full border border-gray-300 shadow-sm"></div>
-                        <div className="w-2 h-2 bg-white rounded-full border border-gray-300 -ml-1 mt-1 shadow-sm"></div>
-                      </div>
-                    )}
-                  </div>
-                )}
-                
-                {/* Image element - Aprimorado com estilo moderno */}
-                {element.type === 'image' && (
-                  <img 
-                    src={element.content} 
-                    alt="Content"
-                    className={`w-full h-full ${
-                      selectedElement === element.id ? 'ring-2 ring-blue-400' : ''
-                    }`}
-                    style={{ 
-                      pointerEvents: 'none',
-                      transform: `
-                        rotate(${element.rotation || 0}deg)
-                        scaleX(${element.flipH ? -1 : 1})
-                        scaleY(${element.flipV ? -1 : 1})
-                      `,
-                      borderRadius: element.imageStyle?.borderRadius || '8px',
-                      objectFit: element.imageStyle?.objectFit || 'contain',
-                      backgroundColor: 'transparent'
-                    }}
-                  />
-                )}
-              </div>
-            </Rnd>
-          ))}
+                      
+                      {/* Botão de áudio para imagem */}
+                      {element.audio && (
+                        <div
+                          className="audio-button"
+                          style={{
+                            position: 'absolute',
+                            left: `${element.audioButtonPosition?.x || (element.size.width - 40)}px`,
+                            top: `${element.audioButtonPosition?.y || 8}px`,
+                            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+                            borderRadius: '50%',
+                            padding: '8px',
+                            cursor: 'move',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            transition: 'background-color 0.2s',
+                            zIndex: 1000,
+                            width: '40px',
+                            height: '40px',
+                            transform: 'translate(-50%, -50%)', // Centraliza o botão no ponto de clique
+                          }}
+                          onMouseDown={(e) => handleMouseDown(e, element.id)}
+                        >
+                          <FiMusic color="white" size={20} />
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </Rnd>
+            ))}
+          </div>
+        </div>
+
+        {/* Barra de ferramentas */}
+        <div className="absolute top-0 left-0 right-0 bg-gray-800 border-b border-gray-700 p-2">
+          <div className="flex items-center space-x-2">
+            {/* ... existing toolbar buttons ... */}
+          </div>
         </div>
       </div>
-      
+
       {/* Modal de visualização em tamanho real - Aprimorado */}
       {showRealSizePreview && (
         <div className="fixed inset-0 z-50 bg-black bg-opacity-90 flex items-center justify-center p-4">

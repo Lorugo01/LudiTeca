@@ -6,8 +6,8 @@ import { toast } from 'react-hot-toast';
 import { FaArrowLeft, FaImage } from 'react-icons/fa';
 import { useAuth } from '../../contexts/auth';
 import { createAuthor } from '../../lib/authors';
+import { uploadFile } from '../../lib/supabase';
 import Layout from '../../components/Layout';
-import MediaLibrary from '../../components/editor/MediaLibrary';
 
 export default function NewAuthor() {
   const [name, setName] = useState('');
@@ -15,7 +15,7 @@ export default function NewAuthor() {
   const [photoUrl, setPhotoUrl] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [showMediaLibrary, setShowMediaLibrary] = useState(false);
+  const [uploading, setUploading] = useState(false);
   
   const { user, loading: isLoading } = useAuth();
   const router = useRouter();
@@ -27,10 +27,24 @@ export default function NewAuthor() {
     }
   }, [isLoading, user, router]);
 
-  const handleMediaSelected = (file) => {
-    console.log('Imagem selecionada da MediaLibrary:', file);
-    setPhotoUrl(file.publicUrl || file.url);
-    setShowMediaLibrary(false);
+  const handlePhotoUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setUploading(true);
+    setError(null);
+    try {
+      // Gera um nome único para o arquivo
+      const fileExt = file.name.split('.').pop();
+      const fileName = `new_${Date.now()}.${fileExt}`;
+      const { url } = await uploadFile('autores', fileName, file, { contentType: file.type });
+      setPhotoUrl(url);
+      toast.success('Foto enviada com sucesso!');
+    } catch (err) {
+      setError('Erro ao fazer upload da foto');
+      toast.error('Erro ao fazer upload da foto');
+    } finally {
+      setUploading(false);
+    }
   };
 
   const handleSubmit = async (e) => {
@@ -129,19 +143,18 @@ export default function NewAuthor() {
               Foto do Autor
             </label>
             <div className="flex items-center gap-4">
-              <button
-                type="button"
-                onClick={() => setShowMediaLibrary(true)}
-                className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline flex items-center"
-              >
-                <FaImage className="mr-2" />
-                Selecionar Imagem
-              </button>
+              <input
+                type="file"
+                accept="image/*"
+                onChange={handlePhotoUpload}
+                disabled={uploading}
+                className="block"
+              />
+              {uploading && <span className="text-blue-600 text-sm">Enviando...</span>}
               {photoUrl && (
                 <div className="text-sm text-green-600">Imagem selecionada</div>
               )}
             </div>
-            
             {photoUrl && (
               <div className="mt-4 border rounded p-4">
                 <p className="text-sm text-gray-500 mb-2">Prévia:</p>
@@ -162,29 +175,6 @@ export default function NewAuthor() {
             </button>
           </div>
         </form>
-        
-        {showMediaLibrary && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg p-4 w-full max-w-4xl h-3/4">
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="font-bold text-lg">Selecionar Foto do Autor</h3>
-                <button 
-                  onClick={() => setShowMediaLibrary(false)}
-                  className="bg-gray-200 rounded-full p-2 hover:bg-gray-300"
-                >
-                  &times;
-                </button>
-              </div>
-              <div className="h-full overflow-y-auto">
-                <MediaLibrary 
-                  onSelect={handleMediaSelected} 
-                  mediaType="image"
-                  onClose={() => setShowMediaLibrary(false)}
-                />
-              </div>
-            </div>
-          </div>
-        )}
       </div>
     </Layout>
   );
