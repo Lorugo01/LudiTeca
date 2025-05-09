@@ -607,28 +607,23 @@ const CanvasEditor = React.memo(({
 
       case 'image':
         content = (
-          <div
-            style={{
-              ...style,
-              overflow: 'hidden',
-              borderRadius: `${element.imageStyle?.borderRadius || 0}px`,
-            }}
-            id={`el-${element.id}`}
-            onMouseDown={(e) => handleMouseDown(e, element.id)}
-            className={`element ${element.animation || ''}`}
-          >
-            <img
-              src={element.content}
+          <div className="w-full h-full relative">
+            {/* Drag handle overlay para mover a imagem */}
+            <div className="drag-handle absolute inset-0 z-10 cursor-move"></div>
+            
+            <img 
+              src={element.content} 
               alt="Content"
-              style={{
-                width: '100%',
-                height: '100%',
-                objectFit: element.imageStyle?.objectFit || 'cover',
+              className="w-full h-full pointer-events-none"
+              style={{ 
                 transform: `
                   rotate(${element.rotation || 0}deg)
                   scaleX(${element.flipH ? -1 : 1})
                   scaleY(${element.flipV ? -1 : 1})
                 `,
+                borderRadius: `${element.imageStyle?.borderRadius || 0}px`,
+                objectFit: element.imageStyle?.objectFit || 'contain',
+                backgroundColor: 'transparent'
               }}
             />
             
@@ -746,6 +741,7 @@ const CanvasEditor = React.memo(({
                 }}
                 enableResizing={!isPreviewMode && !element.isLocked}
                 disableDragging={isPreviewMode || element.isLocked}
+                dragHandleClassName={element.type === 'image' ? 'drag-handle' : undefined}
                 className={`${
                   selectedElement === element.id && !isPreviewMode 
                     ? 'ring-2 ring-blue-500 shadow-md border border-blue-300' 
@@ -774,6 +770,11 @@ const CanvasEditor = React.memo(({
                   id={`el-${element.id}`} 
                   className={`w-full h-full relative ${element.animation ? `animate__animated ${element.animation}` : ''}`}
                 >
+                  {/* Adicionar classe drag-handle para elemento de imagem */}
+                  {element.type === 'image' && (
+                    <div className="drag-handle absolute inset-0 z-10 cursor-move"></div>
+                  )}
+                  
                   {/* Controles inline quando o elemento está selecionado */}
                   {selectedElement === element.id && !isPreviewMode && (
                     <>
@@ -917,17 +918,20 @@ const CanvasEditor = React.memo(({
                   {/* Image element */}
                   {element.type === 'image' && (
                     <div className="w-full h-full relative">
+                      {/* Drag handle overlay para mover a imagem */}
+                      <div className="drag-handle absolute inset-0 z-10 cursor-move"></div>
+                      
                       <img 
                         src={element.content} 
                         alt="Content"
-                        className="w-full h-full"
+                        className="w-full h-full pointer-events-none"
                         style={{ 
                           transform: `
                             rotate(${element.rotation || 0}deg)
                             scaleX(${element.flipH ? -1 : 1})
                             scaleY(${element.flipV ? -1 : 1})
                           `,
-                          borderRadius: element.imageStyle?.borderRadius || '8px',
+                          borderRadius: `${element.imageStyle?.borderRadius || 0}px`,
                           objectFit: element.imageStyle?.objectFit || 'contain',
                           backgroundColor: 'transparent'
                         }}

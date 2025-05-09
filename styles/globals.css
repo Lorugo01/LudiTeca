@@ -17,4 +17,17 @@ a {
 
 * {
   box-sizing: border-box;
+}
+
+/* Adicionar regra para o drag-handle */
+.drag-handle {
+  background-color: transparent;
+  pointer-events: auto;
+  cursor: move;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 10;
 } 
