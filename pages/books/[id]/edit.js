@@ -951,29 +951,6 @@ export default function EditBook() {
     }
   }, [currentStep, pages]);
 
-  // Função para adicionar uma etapa
-  const handleAddStep = useCallback(() => {
-    const maxStep = Math.max(...pages[currentPage].elements.map(el => el.step || 0), 0);
-    setCurrentStep(maxStep + 1);
-  }, [pages, currentPage]);
-
-  // Função para remover uma etapa
-  const handleRemoveStep = useCallback(() => {
-    const maxStep = Math.max(...pages[currentPage].elements.map(el => el.step || 0), 0);
-    if (maxStep > 0) {
-      // Remover elementos da última etapa
-      setPages(prev => {
-        const newPages = deepClone(prev);
-        newPages[currentPage].elements = newPages[currentPage].elements.filter(
-          el => el.step !== maxStep
-        );
-        return newPages;
-      });
-      setCurrentStep(maxStep - 1);
-      setIsModified(true);
-    }
-  }, [pages, currentPage]);
-
   if (loading) {
     return (
       <EditorLayout>
@@ -1249,8 +1226,6 @@ export default function EditBook() {
                   currentStep={currentStep}
                   maxSteps={Math.max(...pages[currentPage].elements.map(el => el.step || 0), 0)}
                   onStepChange={setCurrentStep}
-                  onAddStep={handleAddStep}
-                  onRemoveStep={handleRemoveStep}
                   isPlaying={isPlaying}
                   onPlayPause={handlePlayPause}
                   onStepBack={handleStepBack}

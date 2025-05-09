@@ -17,6 +17,7 @@ const BUCKET_MAP = {
   'image': 'covers',
   'background': 'covers',
   'audio': 'audios',
+  'video': 'videos',
   'page': 'pages',
   'category': 'categories',
   'author': 'autores'
@@ -39,25 +40,27 @@ const MediaLibrary = ({ onSelect, mediaType = 'image' }) => {
   const [targetFolder, setTargetFolder] = useState('');
   const [availableFolders, setAvailableFolders] = useState([]);
   const [lastRefresh, setLastRefresh] = useState(Date.now());
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadingFiles, setUploadingFiles] = useState([]);
   
   // Determine which bucket to use based on media type
   const bucketName = BUCKET_MAP[mediaType] || 'covers';
 
-  // Ajuste para pasta do usuário no bucket covers
+  // Ajuste para pasta do usuário em todos os buckets
   const userRootFolder = useMemo(() => {
-    if (bucketName === 'covers' && user) {
+    if (user) {
       return user.id;
     }
     return '';
-  }, [bucketName, user]);
+  }, [user]);
 
-  // currentFolder sempre relativo à pasta do usuário em covers
+  // currentFolder sempre relativo à pasta do usuário
   const effectiveCurrentFolder = useMemo(() => {
-    if (bucketName === 'covers' && user) {
+    if (user) {
       return currentFolder ? `${userRootFolder}/${currentFolder}` : userRootFolder;
     }
     return currentFolder;
-  }, [bucketName, user, userRootFolder, currentFolder]);
+  }, [user, userRootFolder, currentFolder]);
 
   // Função para limpar o cache
   const clearCache = useCallback(() => {
@@ -342,26 +345,39 @@ const MediaLibrary = ({ onSelect, mediaType = 'image' }) => {
     if (!files || files.length === 0) return;
 
     try {
-      setLoading(true);
+      setIsUploading(true);
       setError(null);
+      setUploadingFiles(Array.from(files).map(file => ({
+        name: file.name,
+        progress: 0
+      })));
 
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
         
-        // Verificar tamanho do arquivo para áudio
+        // Verificar tamanho do arquivo para áudio e vídeo
         if (mediaType === 'audio' && file.size > 50 * 1024 * 1024) { // 50MB
           throw new Error(`O arquivo ${file.name} excede o limite de 50MB permitido para áudios.`);
+        }
+        if (mediaType === 'video' && file.size > 100 * 1024 * 1024) { // 100MB
+          throw new Error(`O arquivo ${file.name} excede o limite de 100MB permitido para vídeos.`);
         }
 
         const filePath = effectiveCurrentFolder ? `${effectiveCurrentFolder}/${file.name}` : file.name;
 
-        // Upload file to storage
+        // Upload file to storage with progress tracking
         const { error: uploadError } = await supabase
           .storage
           .from(bucketName)
           .upload(filePath, file, {
             cacheControl: '3600',
-            upsert: false
+            upsert: false,
+            onUploadProgress: (progress) => {
+              const percent = Math.round((progress.loaded / progress.total) * 100);
+              setUploadingFiles(prev => prev.map(f => 
+                f.name === file.name ? { ...f, progress: percent } : f
+              ));
+            }
           });
 
         if (uploadError) {
@@ -392,7 +408,8 @@ const MediaLibrary = ({ onSelect, mediaType = 'image' }) => {
       console.error('Error uploading file:', err);
       setError(`Falha ao fazer upload do arquivo: ${err.message}`);
     } finally {
-      setLoading(false);
+      setIsUploading(false);
+      setUploadingFiles([]);
     }
   };
 
@@ -478,6 +495,8 @@ const MediaLibrary = ({ onSelect, mediaType = 'image' }) => {
         return "image/*,.gif";
       case 'audio':
         return "audio/*";
+      case 'video':
+        return "video/*";
       default:
         return "image/*,audio/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.gif";
     }
@@ -736,12 +755,21 @@ const MediaLibrary = ({ onSelect, mediaType = 'image' }) => {
       {showUploadForm && (
         <div className="bg-gray-50 p-3 rounded mb-4">
           <div className="flex flex-col space-y-2">
-            <label className="text-sm font-medium flex items-center justify-center p-6 border-2 border-dashed border-gray-300 rounded-lg hover:bg-gray-100 cursor-pointer">
+            <label className={`text-sm font-medium flex items-center justify-center p-6 border-2 border-dashed ${isUploading ? 'border-gray-400 bg-gray-100' : 'border-gray-300 hover:bg-gray-100'} rounded-lg cursor-pointer`}>
               <div className="text-center">
-                <FiPlusCircle className="mx-auto h-8 w-8 text-gray-400" />
-                <span className="mt-2 block text-sm font-medium text-gray-700">
-                  Clique para fazer upload de arquivos
-                </span>
+                {isUploading ? (
+                  <div className="flex flex-col items-center">
+                    <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mb-2"></div>
+                    <span className="text-sm text-gray-600">Enviando arquivos...</span>
+                  </div>
+                ) : (
+                  <>
+                    <FiPlusCircle className="mx-auto h-8 w-8 text-gray-400" />
+                    <span className="mt-2 block text-sm font-medium text-gray-700">
+                      Clique para fazer upload de arquivos
+                    </span>
+                  </>
+                )}
               </div>
               <input
                 type="file"
@@ -749,16 +777,40 @@ const MediaLibrary = ({ onSelect, mediaType = 'image' }) => {
                 accept={getAcceptTypes()}
                 onChange={handleFileUpload}
                 className="hidden"
+                disabled={isUploading}
               />
             </label>
+
+            {/* Progress bars for uploading files */}
+            {isUploading && uploadingFiles.length > 0 && (
+              <div className="space-y-2">
+                {uploadingFiles.map((file, index) => (
+                  <div key={index} className="space-y-1">
+                    <div className="flex justify-between text-xs text-gray-600">
+                      <span className="truncate">{file.name}</span>
+                      <span>{file.progress}%</span>
+                    </div>
+                    <div className="w-full bg-gray-200 rounded-full h-1.5">
+                      <div 
+                        className="bg-blue-600 h-1.5 rounded-full transition-all duration-300"
+                        style={{ width: `${file.progress}%` }}
+                      ></div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
             <div className="text-xs text-gray-500 text-center">
               {mediaType === 'image' || mediaType === 'background' ? 'Suporta imagens e GIFs' : 
                mediaType === 'audio' ? 'Suporta arquivos de áudio (MP3, WAV, OGG) até 50MB' :
+               mediaType === 'video' ? 'Suporta vídeos até 100MB' :
                'Suporta múltiplos tipos de arquivos'}
             </div>
             <button
               onClick={() => setShowUploadForm(false)}
               className="px-2 py-1 border border-gray-300 rounded text-sm hover:bg-gray-100"
+              disabled={isUploading}
             >
               Cancelar
             </button>
@@ -878,8 +930,35 @@ const MediaLibrary = ({ onSelect, mediaType = 'image' }) => {
             </div>
           )}
 
+          {/* Video files */}
+          {groupedFiles.video.length > 0 && (
+            <div>
+              <h4 className="font-medium text-gray-700 mb-2">Vídeos</h4>
+              <div className="space-y-1">
+                {groupedFiles.video.map(file => (
+                  <div 
+                    key={file.id || file.name}
+                    className={`flex items-center justify-between p-2 ${selectedFile === file.id ? 'bg-blue-50 border border-blue-200' : 'bg-gray-50 hover:bg-gray-100'} rounded cursor-pointer group`}
+                    onClick={() => handleSelect(file)}
+                    onDoubleClick={() => handleDoubleClick(file)}
+                  >
+                    <div className="flex items-center space-x-2 truncate">
+                      <FiVideo className="text-purple-500" />
+                      <div className="flex flex-col">
+                        <span className="truncate text-sm">{file.name}</span>
+                        <span className="text-xs text-gray-500">
+                          {formatFileSize(file.metadata?.file_size || 0)} • {formatDate(file.metadata?.created_at)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Other file types */}
-          {['video', 'documents', 'other'].map(fileGroup => {
+          {['documents', 'other'].map(fileGroup => {
             const files = groupedFiles[fileGroup];
             if (files.length === 0) return null;
             

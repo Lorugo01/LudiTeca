@@ -8,7 +8,6 @@ import { useAuth } from '../../../contexts/auth';
 import { getAuthor, updateAuthor } from '../../../lib/authors';
 import { getFileUrl, uploadFile } from '../../../lib/supabase';
 import Layout from '../../../components/Layout';
-import MediaLibrary from '../../../components/editor/MediaLibrary';
 
 export default function EditAuthor() {
   const router = useRouter();

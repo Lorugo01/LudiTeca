@@ -966,13 +966,6 @@ const CanvasEditor = React.memo(({
             ))}
           </div>
         </div>
-
-        {/* Barra de ferramentas */}
-        <div className="absolute top-0 left-0 right-0 bg-gray-800 border-b border-gray-700 p-2">
-          <div className="flex items-center space-x-2">
-            {/* ... existing toolbar buttons ... */}
-          </div>
-        </div>
       </div>
 
       {/* Modal de visualização em tamanho real - Aprimorado */}

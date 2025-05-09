@@ -14,6 +14,7 @@
     "buffer": "^6.0.3",
     "client-only": "^0.0.1",
     "framer-motion": "^12.7.4",
+    "lodash": "^4.17.21",
     "next": "^14.0.4",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
