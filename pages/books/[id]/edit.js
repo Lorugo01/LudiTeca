@@ -444,10 +444,10 @@ export default function EditBook() {
   // Go back to books list
   const goBack = useCallback(() => {
     if (isModified) {
-      const confirmed = window.confirm('Existem mudanças não salvas. Tem certeza que deseja sair?');
+      const confirmed = window.confirm('Você tem alterações não salvas. Tem certeza que deseja sair?');
       if (!confirmed) return;
     }
-    // Usar window.location ao invés de router.push para forçar recarregamento
+    // Usar router.replace em vez de router.push para garantir uma navegação completa
     window.location.href = '/books';
   }, [isModified]);
 
