@@ -444,11 +444,12 @@ export default function EditBook() {
   // Go back to books list
   const goBack = useCallback(() => {
     if (isModified) {
-      const confirmed = window.confirm('You have unsaved changes. Are you sure you want to leave?');
+      const confirmed = window.confirm('Existem mudanças não salvas. Tem certeza que deseja sair?');
       if (!confirmed) return;
     }
-    router.push('/books');
-  }, [router, isModified]);
+    // Usar window.location ao invés de router.push para forçar recarregamento
+    window.location.href = '/books';
+  }, [isModified]);
 
   const handlePlayAnimation = useCallback((id, animation) => {
     const element = pages[currentPage].elements.find(el => el.id === id);
