@@ -8,11 +8,12 @@ import { useAuth } from '../../../contexts/auth';
 import { getBook, updateBook } from '../../../lib/books';
 import { getAuthors } from '../../../lib/authors';
 import { getCategories } from '../../../lib/categories';
-import CanvasEditor from '../../../components/editor/CanvasEditor';
+import CanvasEditor, { AVAILABLE_FONTS } from '../../../components/editor/CanvasEditor';
 import EditorLayout from '../../../components/EditorLayout';
 import MediaLibrary from '../../../components/editor/MediaLibrary';
 import StepContoler from '../../../components/editor/StepContoler';
 import { CANVAS_WIDTH, CANVAS_HEIGHT } from '../../../components/editor/CanvasEditor';
+import ShapeSelector from '../../../components/editor/ShapeSelector';
 
 // Deep clone utility to prevent reference issues
 const deepClone = (obj) => {
@@ -683,7 +684,6 @@ export default function EditBook() {
     
     if (mediaSelectionType === 'background') {
       // Update background of current page with new structure
-      console.log("Setting background for page", currentPage, "to", url);
       setPages(prev => {
         const updated = deepClone(prev);
         updated[currentPage].background = {
@@ -691,7 +691,6 @@ export default function EditBook() {
           position: { x: 0.5, y: 0.5 },
           scale: 1
         };
-        console.log("Updated page background:", updated[currentPage].background);
         return updated;
       });
       setIsModified(true);
@@ -700,18 +699,30 @@ export default function EditBook() {
     }
     
     if (mediaSelectionType === 'audio' && selectedElement) {
-      // Adicionar áudio ao elemento selecionado com posição inicial ao lado
-      const element = pages[currentPage].elements.find(el => el.id === selectedElement);
-      if (element) {
-        // Ajustando para o formato que o reader espera
-        handleElementChange(selectedElement, { 
-          audio: url,
-          audioButtonPosition: {
-            x: element.size.width - 40, // Subtraindo o tamanho do botão para não ultrapassar o elemento
-            y: 8
+      setPages(prev => {
+        const updated = deepClone(prev);
+        const el = updated[currentPage].elements.find(el => el.id === selectedElement);
+        if (el) {
+          if (el.type === 'shape') {
+            el.text = {
+              ...el.text,
+              audio: url,
+              audioButtonPosition: {
+                x: el.size.width - 40,
+                y: 8
+              }
+            };
+          } else {
+            el.audio = url;
+            el.audioButtonPosition = {
+              x: el.size.width - 40,
+              y: 8
+            };
           }
-        });
-      }
+        }
+        return updated;
+      });
+      setIsModified(true);
       setShowMediaLibrary(false);
       return;
     }
@@ -1171,6 +1182,36 @@ export default function EditBook() {
                   >
                     <FiImage size={20} />
                   </button>
+                  
+                  <ShapeSelector onAddShape={(shapeType) => {
+                    const newElement = {
+                      id: Date.now().toString(),
+                      type: 'shape',
+                      shapeProperties: {
+                        type: shapeType,
+                        fill: '#fcfdff',
+                        borderColor: '#0d0d0d',
+                        borderWidth: 2,
+                        borderRadius: shapeType === 'rectangle' ? 0 : undefined
+                      },
+                      position: { x: 50, y: 50 },
+                      size: { width: 150, height: 150 },
+                      animation: '',
+                      step: 0,
+                      zIndex: (pages[currentPage]?.elements?.length || 0) + 1
+                    };
+                    
+                    setPages(prev => {
+                      const updated = deepClone(prev);
+                      updated[currentPage].elements.push(newElement);
+                      saveToHistory(updated);
+                      return updated;
+                    });
+                    
+                    setSelectedElement(newElement.id);
+                    setIsModified(true);
+                  }} />
+                  
                   <button
                     onClick={() => setShowLayerManager(prev => !prev)}
                     className={`p-1 rounded ${
@@ -1225,13 +1266,13 @@ export default function EditBook() {
               <div className="w-48 bg-gray-800 border-r border-gray-700">
                 <StepContoler
                   currentStep={currentStep}
-                  maxSteps={Math.max(...pages[currentPage].elements.map(el => el.step || 0), 0)}
+                  maxSteps={Math.max(...(pages[currentPage]?.elements?.map(el => el.step || 0) || [0]), 0)}
                   onStepChange={setCurrentStep}
                   isPlaying={isPlaying}
                   onPlayPause={handlePlayPause}
                   onStepBack={handleStepBack}
                   onStepForward={handleStepForward}
-                  elements={pages[currentPage].elements}
+                  elements={pages[currentPage]?.elements || []}
                   onElementSelect={setSelectedElement}
                 />
               </div>
@@ -1319,7 +1360,148 @@ export default function EditBook() {
                 ) : (
                   selectedElement && (
                     <div className="space-y-2">
-                      {/* Controles do elemento selecionado */}
+                      {/* Bloco de áudio para qualquer elemento */}
+                      <div className="space-y-1">
+                        <label className="text-gray-300 text-xs">Áudio</label>
+                        {(() => {
+                          const el = pages[currentPage].elements.find(el => el.id === selectedElement);
+                          const audioValue = el?.type === 'shape' ? el?.text?.audio : el?.audio;
+                          if (audioValue) {
+                            return (
+                              <div className="space-y-1">
+                                <audio controls src={audioValue} className="w-full h-8" />
+                                <button
+                                  onClick={() => {
+                                    if (el.type === 'shape') {
+                                      handleElementChange(selectedElement, {
+                                        text: {
+                                          ...el.text,
+                                          audio: null
+                                        }
+                                      });
+                                    } else {
+                                      handleElementChange(selectedElement, { audio: null });
+                                    }
+                                  }}
+                                  className="w-full flex items-center justify-center p-1 bg-red-600 text-white rounded hover:bg-red-700 text-xs"
+                                >
+                                  <FiTrash2 size={12} className="mr-1" />
+                                  Remover Áudio
+                                </button>
+                              </div>
+                            );
+                          } else {
+                            return (
+                              <button
+                                onClick={() => handleShowMediaLibrary('audio')}
+                                className="w-full flex items-center justify-center p-1 bg-blue-600 text-white rounded hover:bg-blue-700 text-xs"
+                              >
+                                <FiMusic size={12} className="mr-1" />
+                                Adicionar Áudio
+                              </button>
+                            );
+                          }
+                        })()}
+                      </div>
+                      {/* Bloco de propriedades de texto das formas */}
+                      {pages[currentPage].elements.find(el => el.id === selectedElement)?.type === 'shape' && (
+                        <div className="mt-4 pt-4 border-t border-gray-600">
+                          <h3 className="text-gray-300 text-xs font-semibold mb-2">Texto da Forma</h3>
+                          <div className="space-y-1">
+                            <label className="text-gray-300 text-xs">Fonte</label>
+                            <select
+                              value={pages[currentPage].elements.find(el => el.id === selectedElement)?.text?.fontFamily || 'Roboto'}
+                              onChange={(e) => handleElementChange(selectedElement, { 
+                                text: {
+                                  ...pages[currentPage].elements.find(el => el.id === selectedElement)?.text,
+                                  fontFamily: e.target.value
+                                }
+                              })}
+                              className="w-full bg-gray-700 text-white border border-gray-600 rounded px-1 py-0.5 text-xs"
+                            >
+                              {AVAILABLE_FONTS.map(font => (
+                                <option key={font.value} value={font.value} style={{ fontFamily: font.value }}>
+                                  {font.label}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-gray-300 text-xs">Tamanho da Fonte</label>
+                            <input
+                              type="number"
+                              min="8"
+                              max="72"
+                              value={pages[currentPage].elements.find(el => el.id === selectedElement)?.text?.fontSize || 16}
+                              onChange={(e) => handleElementChange(selectedElement, { 
+                                text: {
+                                  ...pages[currentPage].elements.find(el => el.id === selectedElement)?.text,
+                                  fontSize: parseInt(e.target.value || 16)
+                                }
+                              })}
+                              className="w-full bg-gray-700 text-white border border-gray-600 rounded px-1 py-0.5 text-xs"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-gray-300 text-xs">Alinhamento</label>
+                            <select
+                              value={pages[currentPage].elements.find(el => el.id === selectedElement)?.text?.textAlign || 'center'}
+                              onChange={(e) => handleElementChange(selectedElement, { 
+                                text: {
+                                  ...pages[currentPage].elements.find(el => el.id === selectedElement)?.text,
+                                  textAlign: e.target.value
+                                }
+                              })}
+                              className="w-full bg-gray-700 text-white border border-gray-600 rounded px-1 py-0.5 text-xs"
+                            >
+                              <option value="left">Esquerda</option>
+                              <option value="center">Centro</option>
+                              <option value="right">Direita</option>
+                            </select>
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-gray-300 text-xs">Cor do Texto</label>
+                            <input
+                              type="color"
+                              value={pages[currentPage].elements.find(el => el.id === selectedElement)?.text?.color || '#000000'}
+                              onChange={(e) => handleElementChange(selectedElement, { 
+                                text: {
+                                  ...pages[currentPage].elements.find(el => el.id === selectedElement)?.text,
+                                  color: e.target.value
+                                }
+                              })}
+                              className="w-full"
+                            />
+                          </div>
+                          <div className="flex space-x-2 mt-2">
+                            <button
+                              onClick={() => handleElementChange(selectedElement, { 
+                                text: {
+                                  ...pages[currentPage].elements.find(el => el.id === selectedElement)?.text,
+                                  fontWeight: pages[currentPage].elements.find(el => el.id === selectedElement)?.text?.fontWeight === 'bold' ? 'normal' : 'bold'
+                                }
+                              })}
+                              className={`p-1 rounded ${pages[currentPage].elements.find(el => el.id === selectedElement)?.text?.fontWeight === 'bold' ? 'bg-blue-600' : 'bg-gray-700'} hover:bg-blue-500`}
+                              title="Negrito"
+                            >
+                              <span className="font-bold text-white">B</span>
+                            </button>
+                            <button
+                              onClick={() => handleElementChange(selectedElement, { 
+                                text: {
+                                  ...pages[currentPage].elements.find(el => el.id === selectedElement)?.text,
+                                  fontStyle: pages[currentPage].elements.find(el => el.id === selectedElement)?.text?.fontStyle === 'italic' ? 'normal' : 'italic'
+                                }
+                              })}
+                              className={`p-1 rounded ${pages[currentPage].elements.find(el => el.id === selectedElement)?.text?.fontStyle === 'italic' ? 'bg-blue-600' : 'bg-gray-700'} hover:bg-blue-500`}
+                              title="Itálico"
+                            >
+                              <span className="italic text-white">I</span>
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                      {/* Controles de propriedades */}
                       <div className="space-y-1">
                         <label className="text-gray-300 text-xs">Etapa</label>
                         <input
@@ -1330,139 +1512,6 @@ export default function EditBook() {
                           className="w-full bg-gray-700 text-white border border-gray-600 rounded px-1 py-0.5 text-xs"
                         />
                       </div>
-
-                      {/* Controles específicos por tipo de elemento */}
-                      {pages[currentPage].elements.find(el => el.id === selectedElement)?.type === 'text' && (
-                        <>
-                          <div className="space-y-1">
-                            <label className="text-gray-300 text-xs">Estilo</label>
-                            <select
-                              value={pages[currentPage].elements.find(el => el.id === selectedElement)?.textStyle || 'normal'}
-                              onChange={(e) => handleTextStyleChange(selectedElement, e.target.value)}
-                              className="w-full bg-gray-700 text-white border border-gray-600 rounded px-1 py-0.5 text-xs"
-                            >
-                              {TEXT_STYLES.map(style => (
-                                <option key={style.value} value={style.value}>
-                                  {style.label}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-
-                          {/* Tamanho da fonte */}
-                          <div className="space-y-1">
-                            <label className="text-gray-300 text-xs">Tamanho da Fonte</label>
-                            <input
-                              type="number"
-                              min="8"
-                              max="72"
-                              value={pages[currentPage].elements.find(el => el.id === selectedElement)?.fontSize || 16}
-                              onChange={(e) => handleElementChange(selectedElement, { fontSize: parseInt(e.target.value || 16) })}
-                              className="w-full bg-gray-700 text-white border border-gray-600 rounded px-1 py-0.5 text-xs"
-                            />
-                          </div>
-
-                          {/* Tipo da fonte */}
-                          <div className="space-y-1">
-                            <label className="text-gray-300 text-xs">Fonte</label>
-                            <select
-                              value={pages[currentPage].elements.find(el => el.id === selectedElement)?.fontFamily || 'Roboto'}
-                              onChange={(e) => handleElementChange(selectedElement, { fontFamily: e.target.value })}
-                              className="w-full bg-gray-700 text-white border border-gray-600 rounded px-1 py-0.5 text-xs"
-                            >
-                              <option value="Roboto">Roboto</option>
-                              <option value="Open Sans">Open Sans</option>
-                              <option value="Poppins">Poppins</option>
-                              <option value="Nunito">Nunito</option>
-                              <option value="Lora">Lora (Serifada)</option>
-                              <option value="Merriweather">Merriweather (Serifada)</option>
-                              <option value="Patrick Hand">Patrick Hand (Feito à mão)</option>
-                              <option value="Comic Neue">Comic Neue (Divertida)</option>
-                              <option value="Dosis">Dosis (Redonda)</option>
-                              <option value="Raleway">Raleway (Elegante)</option>
-                            </select>
-                          </div>
-
-                          {/* Peso (bold/normal) */}
-                          <div className="space-y-1">
-                            <label className="text-gray-300 text-xs">Negrito</label>
-                            <select
-                              value={pages[currentPage].elements.find(el => el.id === selectedElement)?.fontWeight || 'normal'}
-                              onChange={(e) => handleElementChange(selectedElement, { fontWeight: e.target.value })}
-                              className="w-full bg-gray-700 text-white border border-gray-600 rounded px-1 py-0.5 text-xs"
-                            >
-                              <option value="normal">Normal</option>
-                              <option value="bold">Negrito</option>
-                            </select>
-                          </div>
-
-                          {/* Itálico */}
-                          <div className="space-y-1">
-                            <label className="text-gray-300 text-xs">Itálico</label>
-                            <select
-                              value={pages[currentPage].elements.find(el => el.id === selectedElement)?.fontStyle || 'normal'}
-                              onChange={(e) => handleElementChange(selectedElement, { fontStyle: e.target.value })}
-                              className="w-full bg-gray-700 text-white border border-gray-600 rounded px-1 py-0.5 text-xs"
-                            >
-                              <option value="normal">Normal</option>
-                              <option value="italic">Itálico</option>
-                            </select>
-                          </div>
-
-                          {/* Alinhamento */}
-                          <div className="space-y-1">
-                            <label className="text-gray-300 text-xs">Alinhamento</label>
-                            <select
-                              value={pages[currentPage].elements.find(el => el.id === selectedElement)?.textAlign || 'left'}
-                              onChange={(e) => handleElementChange(selectedElement, { textAlign: e.target.value })}
-                              className="w-full bg-gray-700 text-white border border-gray-600 rounded px-1 py-0.5 text-xs"
-                            >
-                              <option value="left">Esquerda</option>
-                              <option value="center">Centro</option>
-                              <option value="right">Direita</option>
-                            </select>
-                          </div>
-
-                          {/* Cor do Texto */}
-                          <div className="space-y-1">
-                            <label className="text-gray-300 text-xs">Cor do Texto</label>
-                            <input
-                              type="color"
-                              value={pages[currentPage].elements.find(el => el.id === selectedElement)?.color || '#000000'}
-                              onChange={(e) => handleElementChange(selectedElement, { color: e.target.value })}
-                              className="w-full"
-                            />
-                          </div>
-
-                          <div className="space-y-1">
-                            <label className="text-gray-300 text-xs">Áudio</label>
-                            {pages[currentPage].elements.find(el => el.id === selectedElement)?.audio ? (
-                              <div className="space-y-1">
-                                <audio 
-                                  controls 
-                                  src={pages[currentPage].elements.find(el => el.id === selectedElement)?.audio}
-                                  className="w-full h-8"
-                                />
-                                <button
-                                  onClick={() => handleElementChange(selectedElement, { audio: null })}
-                                  className="w-full flex items-center justify-center p-1 bg-red-600 text-white rounded hover:bg-red-700 text-xs"
-                                >
-                                  <FiTrash2 size={12} className="mr-1" />
-                                  Remover Áudio
-                                </button>
-                              </div>
-                            ) : (
-                              <button
-                                onClick={() => handleShowMediaLibrary('audio')}
-                                className="w-full flex items-center justify-center p-1 bg-blue-600 text-white rounded hover:bg-blue-700 text-xs"
-                              >
-                                <FiMusic size={12} className="mr-1" />
-                                Adicionar Áudio
-                              </button>
-                            )}
-                          </div>
-                        </>
-                      )}
 
                       {/* Animações */}
                       <div className="space-y-1">

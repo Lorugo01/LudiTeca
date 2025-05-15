@@ -764,10 +764,10 @@ const MediaLibrary = ({ onSelect, mediaType = 'image' }) => {
                   </div>
                 ) : (
                   <>
-                    <FiPlusCircle className="mx-auto h-8 w-8 text-gray-400" />
-                    <span className="mt-2 block text-sm font-medium text-gray-700">
-                      Clique para fazer upload de arquivos
-                    </span>
+                <FiPlusCircle className="mx-auto h-8 w-8 text-gray-400" />
+                <span className="mt-2 block text-sm font-medium text-gray-700">
+                  Clique para fazer upload de arquivos
+                </span>
                   </>
                 )}
               </div>

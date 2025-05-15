@@ -6,6 +6,9 @@ import supabase from '../../lib/supabase';
 import 'animate.css'; // Importar a biblioteca de animações
 import TextElementControls from './TextElementControls';
 import ImageElementControls from './ImageElementControls';
+import ShapeElementControls from './ShapeElementControls';
+import ShapeElement from './ShapeElement';
+import ShapeSelector from './ShapeSelector';
 import LayerManager from './LayerManager';
 
 // Dimensões fixas para o canvas (resolução padrão do livro)
@@ -44,7 +47,7 @@ const TEXT_STYLES = [
 ];
 
 // Lista de fontes disponíveis com nomes exatos
-const AVAILABLE_FONTS = [
+export const AVAILABLE_FONTS = [
   { value: 'Roboto', label: 'Roboto' },
   { value: 'Raleway', label: 'Raleway' },
   { value: 'Poppins', label: 'Poppins' },
@@ -539,6 +542,91 @@ const CanvasEditor = React.memo(({
     document.addEventListener('mouseup', handleMouseUp);
   };
 
+  // Adicionar função para calcular a posição dos controles
+  const calculateControlsPosition = useCallback((element) => {
+    const elementRect = document.getElementById(`el-${element.id}`)?.getBoundingClientRect();
+    const canvasRect = canvasRef.current?.getBoundingClientRect();
+    
+    if (!elementRect || !canvasRect) return { top: 'auto', bottom: 'auto' };
+    
+    // Se o elemento está muito próximo ao topo, posiciona os controles abaixo
+    if (elementRect.top - canvasRect.top < 100) {
+      return { top: '100%', bottom: 'auto' };
+    }
+    
+    // Caso contrário, posiciona os controles acima
+    return { top: 'auto', bottom: '100%' };
+  }, []);
+
+  // Adicionar função para criar uma nova forma
+  const handleAddShape = useCallback((shapeType) => {
+    const newElement = {
+      id: Date.now().toString(),
+      type: 'shape',
+      shapeProperties: {
+        type: shapeType,
+        fill: '#fcfdff', // fundo quase branco
+        borderColor: '#0d0d0d', // borda quase preta
+        borderWidth: 2,
+        borderRadius: shapeType === 'rectangle' ? 0 : undefined
+      },
+      position: { x: 50, y: 50 },
+      size: { width: 150, height: 150 },
+      animation: '',
+      step: 0,
+      zIndex: (page.elements?.length || 0) + 1,
+      // Adicionando propriedades de texto
+      text: {
+        content: '',
+        fontSize: 16,
+        fontFamily: 'Roboto',
+        fontWeight: 'normal',
+        fontStyle: 'normal',
+        textAlign: 'center',
+        color: '#000000'
+      }
+    };
+    
+    const updatedPage = {
+      ...page,
+      elements: [...(page.elements || []), newElement]
+    };
+    onChange(updatedPage);
+    setSelectedElement(newElement.id);
+  }, [page, onChange, setSelectedElement]);
+  
+  // Adicionar função para iniciar edição de texto na forma
+  const handleStartShapeTextEdit = useCallback((element) => {
+    if (isPreviewMode) return;
+    
+    setEditingText(element.id);
+    setEditingTextValue(element.text?.content || '');
+    setSelectedElement(element.id);
+    
+    setTimeout(() => {
+      if (textInputRef.current) {
+        textInputRef.current.focus();
+      }
+    }, 10);
+  }, [isPreviewMode, setSelectedElement]);
+
+  // Adicionar função para finalizar edição de texto na forma
+  const handleFinishShapeTextEdit = useCallback(() => {
+    if (editingText) {
+      const element = page.elements.find(el => el.id === editingText);
+      if (element?.type === 'shape') {
+        handleElementChange(editingText, {
+          text: {
+            ...element.text,
+            content: editingTextValue.trim()
+          }
+        });
+      }
+    }
+    setEditingText(null);
+    setEditingTextValue('');
+  }, [editingText, editingTextValue, handleElementChange, page.elements]);
+  
   const renderElement = (element) => {
     if (currentStep < (element.step || 0)) return null;
 
@@ -550,7 +638,7 @@ const CanvasEditor = React.memo(({
       height: element.size.height === 'auto' ? 'auto' : `${element.size.height}px`,
       cursor: isPreviewMode ? 'default' : 'move',
       userSelect: 'none',
-      border: selectedElement === element.id && !isPreviewMode ? '2px solid #3b82f6' : 'none',
+      border: selectedElement === element.id && !isPreviewMode ? '2px solid #fcfdff' : 'none',
       padding: '2px',
     };
 
@@ -568,6 +656,7 @@ const CanvasEditor = React.memo(({
               textAlign: element.textAlign || 'left',
               color: element.color || '#000000',
               position: 'relative',
+              userSelect: 'text',
             }}
             id={`el-${element.id}`}
             onMouseDown={(e) => handleMouseDown(e, element.id)}
@@ -656,6 +745,130 @@ const CanvasEditor = React.memo(({
           </div>
         );
         break;
+        
+      case 'shape':
+        content = (
+          <div className="w-full h-full relative">
+            {/* Forma sempre atrás */}
+            <div className="absolute inset-0 z-0 pointer-events-none">
+              <ShapeElement shape={element.shapeProperties} />
+            </div>
+            {/* Texto sobreposto */}
+            {editingText === element.id ? (
+              <div className="absolute inset-0 z-10 flex items-center justify-center w-full h-full">
+                <textarea
+                  ref={textInputRef}
+                  value={editingTextValue}
+                  onChange={(e) => {
+                    setEditingTextValue(e.target.value);
+                  }}
+                  onBlur={handleFinishShapeTextEdit}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && e.ctrlKey) {
+                      handleFinishShapeTextEdit();
+                    }
+                  }}
+                  className="w-full h-full resize-none focus:outline-none focus:ring-1 focus:ring-blue-400 bg-transparent text-center p-2"
+                  style={{
+                    fontFamily: element.text?.fontFamily || 'Roboto',
+                    fontSize: element.text?.fontSize ? `${element.text.fontSize}px` : '16px',
+                    fontWeight: element.text?.fontWeight || 'normal',
+                    fontStyle: element.text?.fontStyle || 'normal',
+                    textAlign: element.text?.textAlign || 'center',
+                    color: element.text?.color || '#000000',
+                    overflow: 'hidden',
+                    wordBreak: 'break-word',
+                    whiteSpace: 'pre-wrap',
+                    boxSizing: 'border-box',
+                    background: 'transparent'
+                  }}
+                  placeholder="Digite seu texto aqui"
+                  autoFocus
+                />
+              </div>
+            ) : element.text?.content ? (
+              <div 
+                className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none w-full h-full p-2"
+                style={{
+                  fontFamily: element.text?.fontFamily || 'Roboto',
+                  fontSize: element.text?.fontSize ? `${element.text.fontSize}px` : '16px',
+                  fontWeight: element.text?.fontWeight || 'normal',
+                  fontStyle: element.text?.fontStyle || 'normal',
+                  textAlign: element.text?.textAlign || 'center',
+                  color: element.text?.color || '#000000',
+                  overflow: 'hidden',
+                  wordBreak: 'break-word',
+                  whiteSpace: 'pre-wrap',
+                  boxSizing: 'border-box',
+                  background: 'transparent'
+                }}
+              >
+                {element.text.content}
+              </div>
+            ) : null}
+            {/* Botão de áudio para forma */}
+            {element.text?.audio && (
+              <div
+                className="audio-button"
+                style={{
+                  position: 'absolute',
+                  left: `${element.text?.audioButtonPosition?.x || (element.size.width - 40)}px`,
+                  top: `${element.text?.audioButtonPosition?.y || 8}px`,
+                  backgroundColor: 'rgba(0, 0, 0, 0.5)',
+                  borderRadius: '50%',
+                  padding: '8px',
+                  cursor: 'move',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  transition: 'background-color 0.2s',
+                  zIndex: 1000,
+                  width: '40px',
+                  height: '40px',
+                  transform: 'translate(-50%, -50%)',
+                }}
+                onMouseDown={(e) => {
+                  // Reutiliza a lógica de mover botão de áudio
+                  if (isPreviewMode) return;
+                  e.stopPropagation();
+                  const elementId = element.id;
+                  const startX = e.clientX;
+                  const startY = e.clientY;
+                  const startPos = {
+                    x: element.text?.audioButtonPosition?.x || (element.size.width - 40),
+                    y: element.text?.audioButtonPosition?.y || 8
+                  };
+                  const handleMouseMove = (moveEvent) => {
+                    const deltaX = moveEvent.clientX - startX;
+                    const deltaY = moveEvent.clientY - startY;
+                    let newX = startPos.x + deltaX / (scale || 1);
+                    let newY = startPos.y + deltaY / (scale || 1);
+                    // Limites básicos
+                    if (newX < 0) newX = 0;
+                    if (newY < 0) newY = 0;
+                    if (newX > element.size.width) newX = element.size.width;
+                    if (newY > element.size.height) newY = element.size.height;
+                    handleElementChange(elementId, {
+                      text: {
+                        ...element.text,
+                        audioButtonPosition: { x: newX, y: newY }
+                      }
+                    });
+                  };
+                  const handleMouseUp = () => {
+                    document.removeEventListener('mousemove', handleMouseMove);
+                    document.removeEventListener('mouseup', handleMouseUp);
+                  };
+                  document.addEventListener('mousemove', handleMouseMove);
+                  document.addEventListener('mouseup', handleMouseUp);
+                }}
+              >
+                <FiMusic color="white" size={20} />
+              </div>
+            )}
+          </div>
+        );
+        break;
 
       default:
         content = null;
@@ -709,14 +922,14 @@ const CanvasEditor = React.memo(({
                   x: element.position?.x || 0,
                   y: element.position?.y || 0,
                   width: element.size?.width || 100,
-                  height: element.type === 'image' 
+                  height: element.type === 'image' || element.type === 'shape'
                     ? element.size?.height || 100 
                     : element.size?.height === 'auto' ? 'auto' : element.size?.height || 'auto'
                 }}
                 position={{ x: element.position?.x || 0, y: element.position?.y || 0 }}
                 size={{ 
                   width: element.size?.width || 100, 
-                  height: element.type === 'image' 
+                  height: element.type === 'image' || element.type === 'shape'
                     ? element.size?.height || 100 
                     : element.size?.height === 'auto' ? 'auto' : element.size?.height || 'auto'
                 }}
@@ -737,11 +950,16 @@ const CanvasEditor = React.memo(({
                 onClick={(e) => handleElementClick(e, element)}
                 onDoubleClick={(e) => {
                   e.stopPropagation();
-                  setSelectedElement && setSelectedElement(element.id);
+                  if (element.type === 'shape') {
+                    console.log('Duplo clique no Rnd da forma:', element);
+                    handleStartShapeTextEdit(element);
+                  } else {
+                    setSelectedElement && setSelectedElement(element.id);
+                  }
                 }}
                 enableResizing={!isPreviewMode && !element.isLocked}
                 disableDragging={isPreviewMode || element.isLocked}
-                dragHandleClassName={element.type === 'image' ? 'drag-handle' : undefined}
+                dragHandleClassName={element.type === 'image' || element.type === 'shape' ? 'drag-handle' : undefined}
                 className={`${
                   selectedElement === element.id && !isPreviewMode 
                     ? 'ring-2 ring-blue-500 shadow-md border border-blue-300' 
@@ -770,14 +988,21 @@ const CanvasEditor = React.memo(({
                   id={`el-${element.id}`} 
                   className={`w-full h-full relative ${element.animation ? `animate__animated ${element.animation}` : ''}`}
                 >
-                  {/* Adicionar classe drag-handle para elemento de imagem */}
-                  {element.type === 'image' && (
+                  {/* Adicionar classe drag-handle para elemento de imagem e forma */}
+                  {(element.type === 'image' || element.type === 'shape') && (
                     <div className="drag-handle absolute inset-0 z-10 cursor-move"></div>
                   )}
                   
                   {/* Controles inline quando o elemento está selecionado */}
                   {selectedElement === element.id && !isPreviewMode && (
-                    <>
+                    <div 
+                      className="absolute left-0 z-50 bg-white rounded shadow-lg p-2 flex space-x-1"
+                      style={{
+                        ...calculateControlsPosition(element),
+                        transform: 'translateY(-8px)',
+                        minWidth: 'max-content'
+                      }}
+                    >
                       {element.type === 'text' ? (
                         <TextElementControls
                           element={element}
@@ -800,8 +1025,18 @@ const CanvasEditor = React.memo(({
                           onImageRotate={onImageRotate}
                           onImageFlip={onImageFlip}
                         />
+                      ) : element.type === 'shape' ? (
+                        <ShapeElementControls
+                          element={element}
+                          onPlayAnimation={onPlayAnimation}
+                          handleElementChange={handleElementChange}
+                          onDuplicateElement={onDuplicateElement}
+                          onMoveForward={onMoveForward}
+                          onMoveBackward={onMoveBackward}
+                          onRemoveElement={onRemoveElement}
+                        />
                       ) : null}
-                    </>
+                    </div>
                   )}
 
                   {/* Text element */}
@@ -965,6 +1200,129 @@ const CanvasEditor = React.memo(({
                       )}
                     </div>
                   )}
+
+                  {/* Shape element */}
+                  {element.type === 'shape' && (
+                    <div className="w-full h-full relative">
+                      {/* Forma sempre atrás */}
+                      <div className="absolute inset-0 z-0 pointer-events-none">
+                        <ShapeElement shape={element.shapeProperties} />
+                      </div>
+                      {/* Texto sobreposto */}
+                      {editingText === element.id ? (
+                        <div className="absolute inset-0 z-10 flex items-center justify-center w-full h-full">
+                          <textarea
+                            ref={textInputRef}
+                            value={editingTextValue}
+                            onChange={(e) => {
+                              setEditingTextValue(e.target.value);
+                            }}
+                            onBlur={handleFinishShapeTextEdit}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' && e.ctrlKey) {
+                                handleFinishShapeTextEdit();
+                              }
+                            }}
+                            className="w-full h-full resize-none focus:outline-none focus:ring-1 focus:ring-blue-400 bg-transparent text-center p-2"
+                            style={{
+                              fontFamily: element.text?.fontFamily || 'Roboto',
+                              fontSize: element.text?.fontSize ? `${element.text.fontSize}px` : '16px',
+                              fontWeight: element.text?.fontWeight || 'normal',
+                              fontStyle: element.text?.fontStyle || 'normal',
+                              textAlign: element.text?.textAlign || 'center',
+                              color: element.text?.color || '#000000',
+                              overflow: 'hidden',
+                              wordBreak: 'break-word',
+                              whiteSpace: 'pre-wrap',
+                              boxSizing: 'border-box',
+                              background: 'transparent'
+                            }}
+                            placeholder="Digite seu texto aqui"
+                            autoFocus
+                          />
+                        </div>
+                      ) : element.text?.content ? (
+                        <div 
+                          className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none w-full h-full p-2"
+                          style={{
+                            fontFamily: element.text?.fontFamily || 'Roboto',
+                            fontSize: element.text?.fontSize ? `${element.text.fontSize}px` : '16px',
+                            fontWeight: element.text?.fontWeight || 'normal',
+                            fontStyle: element.text?.fontStyle || 'normal',
+                            textAlign: element.text?.textAlign || 'center',
+                            color: element.text?.color || '#000000',
+                            overflow: 'hidden',
+                            wordBreak: 'break-word',
+                            whiteSpace: 'pre-wrap',
+                            boxSizing: 'border-box',
+                            background: 'transparent'
+                          }}
+                        >
+                          {element.text.content}
+                        </div>
+                      ) : null}
+                      {/* Botão de áudio para forma */}
+                      {element.text?.audio && (
+                        <div
+                          className="audio-button"
+                          style={{
+                            position: 'absolute',
+                            left: `${element.text?.audioButtonPosition?.x || (element.size.width - 40)}px`,
+                            top: `${element.text?.audioButtonPosition?.y || 8}px`,
+                            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+                            borderRadius: '50%',
+                            padding: '8px',
+                            cursor: 'move',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            transition: 'background-color 0.2s',
+                            zIndex: 1000,
+                            width: '40px',
+                            height: '40px',
+                            transform: 'translate(-50%, -50%)',
+                          }}
+                          onMouseDown={(e) => {
+                            // Reutiliza a lógica de mover botão de áudio
+                            if (isPreviewMode) return;
+                            e.stopPropagation();
+                            const elementId = element.id;
+                            const startX = e.clientX;
+                            const startY = e.clientY;
+                            const startPos = {
+                              x: element.text?.audioButtonPosition?.x || (element.size.width - 40),
+                              y: element.text?.audioButtonPosition?.y || 8
+                            };
+                            const handleMouseMove = (moveEvent) => {
+                              const deltaX = moveEvent.clientX - startX;
+                              const deltaY = moveEvent.clientY - startY;
+                              let newX = startPos.x + deltaX / (scale || 1);
+                              let newY = startPos.y + deltaY / (scale || 1);
+                              // Limites básicos
+                              if (newX < 0) newX = 0;
+                              if (newY < 0) newY = 0;
+                              if (newX > element.size.width) newX = element.size.width;
+                              if (newY > element.size.height) newY = element.size.height;
+                              handleElementChange(elementId, {
+                                text: {
+                                  ...element.text,
+                                  audioButtonPosition: { x: newX, y: newY }
+                                }
+                              });
+                            };
+                            const handleMouseUp = () => {
+                              document.removeEventListener('mousemove', handleMouseMove);
+                              document.removeEventListener('mouseup', handleMouseUp);
+                            };
+                            document.addEventListener('mousemove', handleMouseMove);
+                            document.addEventListener('mouseup', handleMouseUp);
+                          }}
+                        >
+                          <FiMusic color="white" size={20} />
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </Rnd>
             ))}
@@ -1021,7 +1379,7 @@ const CanvasEditor = React.memo(({
                     left: `${element.position?.x || 0}px`,
                     top: `${element.position?.y || 0}px`,
                     width: `${element.size?.width || 100}px`,
-                    height: element.type === 'image' 
+                    height: element.type === 'image' || element.type === 'shape'
                       ? `${element.size?.height || 200}px` 
                       : (element.size?.height === 'auto' ? 'auto' : `${element.size?.height}px`),
                     zIndex: element.zIndex || 1
@@ -1079,6 +1437,13 @@ const CanvasEditor = React.memo(({
                           objectFit: element.imageStyle?.objectFit || 'contain'
                         }}
                       />
+                    </div>
+                  )}
+                  
+                  {/* Conteúdo da forma */}
+                  {element.type === 'shape' && (
+                    <div className="w-full h-full">
+                      <ShapeElement shape={element.shapeProperties} />
                     </div>
                   )}
                 </div>

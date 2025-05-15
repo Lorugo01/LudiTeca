@@ -1,6 +1,6 @@
 import { useRouter } from 'next/router';
-import Link from 'next/link';
-import { FiChevronLeft } from 'react-icons/fi';
+//import Link from 'next/link';
+//import { FiChevronLeft } from 'react-icons/fi';
 import { useAuth } from '../contexts/auth';
 
 export default function EditorLayout({ children }) {

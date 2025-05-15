@@ -1,10 +1,10 @@
-# UniverseTeca CMS
+# LudiTeca CMS
 
-O UniverseTeca CMS é um sistema de gerenciamento de conteúdo especializado para criação de livros interativos digitais.
+O LudiTeca CMS é um sistema de gerenciamento de conteúdo especializado para criação de livros interativos digitais.
 
 ## 🎨 Editor Visual
 
-O editor visual do UniverseTeca foi projetado para oferecer uma experiência intuitiva na criação de conteúdo interativo.
+O editor visual do LudiTeca foi projetado para oferecer uma experiência intuitiva na criação de conteúdo interativo.
 
 ### Área de Trabalho
 
@@ -112,7 +112,7 @@ npm run build
 ### Estrutura de Arquivos
 
 ```
-universeteca-cms/
+Luditeca-cms/
 ├── components/
 │   └── editor/
 │       ├── CanvasEditor.js    # Editor principal
