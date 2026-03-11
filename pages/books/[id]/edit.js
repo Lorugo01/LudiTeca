@@ -34,6 +34,44 @@ const sanitizePages = (pages) => {
   }));
 };
 
+const getDraftStorageKey = (bookId) => `luditeca:book-edit-draft:${bookId}`;
+
+const loadDraftFromStorage = (bookId) => {
+  if (!bookId || typeof window === 'undefined') return null;
+
+  try {
+    const rawDraft = window.sessionStorage.getItem(getDraftStorageKey(bookId));
+    if (!rawDraft) return null;
+
+    const parsedDraft = JSON.parse(rawDraft);
+    if (!parsedDraft || !Array.isArray(parsedDraft.pages)) return null;
+
+    return parsedDraft;
+  } catch (error) {
+    console.error('Erro ao restaurar rascunho local:', error);
+    return null;
+  }
+};
+
+const saveDraftToStorage = (bookId, draft) => {
+  if (!bookId || typeof window === 'undefined') return;
+
+  try {
+    window.sessionStorage.setItem(getDraftStorageKey(bookId), JSON.stringify(draft));
+  } catch (error) {
+    console.error('Erro ao salvar rascunho local:', error);
+  }
+};
+
+const clearDraftFromStorage = (bookId) => {
+  if (!bookId || typeof window === 'undefined') return;
+
+  try {
+    window.sessionStorage.removeItem(getDraftStorageKey(bookId));
+  } catch (error) {
+    console.error('Erro ao limpar rascunho local:', error);
+  }
+};
 // Animation options
 const ANIMATIONS = [
   { value: '', label: 'No Animation' },
@@ -99,6 +137,18 @@ export default function EditBook() {
   const [historyIndex, setHistoryIndex] = useState(-1);
   const [clipboard, setClipboard] = useState(null);
 
+  // Refs para manter o histórico sincronizado sem recriar callbacks
+  const historyRef = useRef(history);
+  const historyIndexRef = useRef(historyIndex);
+  const loadedBookIdRef = useRef(null);
+
+  useEffect(() => {
+    historyRef.current = history;
+  }, [history]);
+
+  useEffect(() => {
+    historyIndexRef.current = historyIndex;
+  }, [historyIndex]);
   // Adicionar estados para reprodução
   const [isPlaying, setIsPlaying] = useState(false);
   const [playbackInterval, setPlaybackInterval] = useState(null);
@@ -125,10 +175,13 @@ export default function EditBook() {
     checkAuth();
   }, [authLoading, user, router]);
 
-  // Carregar dados do livro
+  // Carregar dados do livro apenas quando o ID realmente mudar
   useEffect(() => {
     console.log("Verificando id e user para buscar livro:", { id, user });
-    if (id && user) {
+    if (id && user?.id) {
+      if (loadedBookIdRef.current === id) return;
+
+      loadedBookIdRef.current = id;
       fetchBook(id);
       fetchAuthors();
       fetchCategories();
@@ -142,7 +195,46 @@ export default function EditBook() {
       // Redirecionar para lista de livros
       router.push('/books');
     }
-  }, [id, user, router.isReady]);
+  }, [id, user?.id, router.isReady]);
+
+  // Avisar ao usuário se tentar sair com alterações não salvas (fechar aba/atualizar)
+  useEffect(() => {
+    const handleBeforeUnload = (event) => {
+      if (!isModified) return;
+      event.preventDefault();
+      // Mensagem customizada é ignorada pelos browsers modernos, mas `returnValue` precisa ser setado
+      event.returnValue = '';
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [isModified]);
+
+  // Interceptar mudanças de rota do Next para evitar perder alterações sem confirmação
+  useEffect(() => {
+    const handleRouteChangeStart = (url) => {
+      if (!isModified) return;
+
+      const confirmLeave = window.confirm(
+        'Você tem alterações não salvas. Tem certeza que deseja sair desta página?'
+      );
+
+      if (!confirmLeave) {
+        // Cancelar a navegação
+        router.events.emit('routeChangeError');
+        // Lançar erro para interromper a transição (padrão Next.js)
+        // eslint-disable-next-line no-throw-literal
+        throw 'Route change aborted due to unsaved changes';
+      }
+    };
+
+    router.events.on('routeChangeStart', handleRouteChangeStart);
+    return () => {
+      router.events.off('routeChangeStart', handleRouteChangeStart);
+    };
+  }, [isModified, router.events]);
 
   // Função para buscar o livro
   const fetchBook = async (bookId) => {
@@ -192,6 +284,7 @@ export default function EditBook() {
           // Usar JSON para clone profundo - evita referências cruzadas
           const deepClonedPages = JSON.parse(JSON.stringify(data.pages));
           setPages(deepClonedPages);
+          setCurrentPage(0);
           console.log("Páginas inicializadas:", deepClonedPages.length);
         } else {
           console.log("Livro não tem páginas ou array está vazio");
@@ -202,6 +295,26 @@ export default function EditBook() {
             elements: [],
             orientation: 'portrait'
           }]);
+          setCurrentPage(0);
+        }
+
+        // Se houver rascunho local (não salvo), prioriza o rascunho para não perder trabalho
+        const draft = loadDraftFromStorage(bookId);
+        if (draft) {
+          setTitle(draft.title ?? data.title ?? '');
+          setAuthorId(draft.authorId ?? data.author_id ?? '');
+          setDescription(draft.description ?? data.description ?? '');
+          setCoverImage(draft.coverImage ?? data.cover_image ?? '');
+          setCategoryId(draft.categoryId ?? data.category_id ?? '');
+          setPages(deepClone(draft.pages));
+          setCurrentPage(
+            Math.min(
+              draft.currentPage ?? 0,
+              Math.max((draft.pages?.length || 1) - 1, 0)
+            )
+          );
+          setIsModified(true);
+          console.log("Rascunho local restaurado");
         }
       } else {
         // Dados não encontrados, criar um livro vazio temporário
@@ -222,6 +335,7 @@ export default function EditBook() {
           elements: [],
           orientation: 'portrait'
         }]);
+        setCurrentPage(0);
       }
     } catch (error) {
       console.error('Error fetching book:', error);
@@ -243,6 +357,7 @@ export default function EditBook() {
         elements: [],
         orientation: 'portrait'
       }]);
+      setCurrentPage(0);
     } finally {
       console.log("Finalizando fetchBook, setando loading como false");
       setLoading(false);
@@ -295,14 +410,18 @@ export default function EditBook() {
     setIsModified(true);
   }, [pages, currentPage]);
 
-  // Função para salvar estado no histórico - Movida para cima
+  // Função para salvar estado no histórico usando refs para evitar loops de renderização
   const saveToHistory = useCallback((newState) => {
-    const newHistory = history.slice(0, historyIndex + 1);
+    const currentHistory = historyRef.current;
+    const currentIndex = historyIndexRef.current;
+
+    const newHistory = currentHistory.slice(0, currentIndex + 1);
     newHistory.push(deepClone(newState));
+
     setHistory(newHistory);
     setHistoryIndex(newHistory.length - 1);
     console.log('Estado salvo no histórico:', newState);
-  }, [history, historyIndex]);
+  }, []);
 
   // Element handlers
   const handleElementChange = useCallback((id, updates) => {
@@ -421,6 +540,7 @@ export default function EditBook() {
       
       console.log("Livro salvo com sucesso!");
       setIsModified(false);
+      clearDraftFromStorage(id);
     } catch (error) {
       console.error('ERRO COMPLETO AO SALVAR:', error);
       // Mostrar detalhes do erro para debug
@@ -442,15 +562,41 @@ export default function EditBook() {
     }
   }, [book, id, pages, title, authorId, description, coverImage, categoryId]);
 
+  // Persistir rascunho local enquanto houver alteração não salva
+  useEffect(() => {
+    if (!id || !book || !isModified) return;
+
+    saveDraftToStorage(id, {
+      title,
+      authorId,
+      description,
+      coverImage,
+      categoryId,
+      pages,
+      currentPage,
+      updatedAt: Date.now()
+    });
+  }, [
+    id,
+    book,
+    isModified,
+    title,
+    authorId,
+    description,
+    coverImage,
+    categoryId,
+    pages,
+    currentPage
+  ]);
+
   // Go back to books list
   const goBack = useCallback(() => {
     if (isModified) {
       const confirmed = window.confirm('Você tem alterações não salvas. Tem certeza que deseja sair?');
       if (!confirmed) return;
     }
-    // Usar router.replace em vez de router.push para garantir uma navegação completa
-    window.location.href = '/books';
-  }, [isModified]);
+    router.push('/books');
+  }, [isModified, router]);
 
   const handlePlayAnimation = useCallback((id, animation) => {
     const element = pages[currentPage].elements.find(el => el.id === id);
