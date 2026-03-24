@@ -57,6 +57,62 @@ async function parseForm(req) {
   return { fields, files };
 }
 
+/** Corpo JSON pequeno (referência a ficheiro já no Storage) — compatível com limite da Vercel. */
+function readRequestJson(req) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    req.on('data', (chunk) => chunks.push(chunk));
+    req.on('end', () => {
+      try {
+        const raw = Buffer.concat(chunks).toString('utf8');
+        resolve(raw ? JSON.parse(raw) : {});
+      } catch {
+        reject(new Error('JSON inválido no corpo da requisição.'));
+      }
+    });
+    req.on('error', reject);
+  });
+}
+
+const ALLOWED_PPTX_SOURCE_BUCKETS = new Set(['presentations']);
+
+function assertPptxStoragePathForUser(storagePath, userId) {
+  const normalized = String(storagePath || '')
+    .replace(/\\/g, '/')
+    .replace(/^\/+/, '');
+  if (!normalized.toLowerCase().endsWith('.pptx')) {
+    throw new Error('Caminho inválido: é necessário um arquivo .pptx.');
+  }
+  if (normalized.includes('..')) {
+    throw new Error('Caminho de armazenamento inválido.');
+  }
+  const prefix = `${userId}/`;
+  if (!normalized.startsWith(prefix)) {
+    throw new Error('Caminho de armazenamento não autorizado para este usuário.');
+  }
+  if (!normalized.includes('/imports/staging/')) {
+    throw new Error(
+      'Use apenas arquivos enviados para a pasta de importação (staging).',
+    );
+  }
+  return normalized;
+}
+
+async function removeStagingImportFile({ supabase, bucket, storagePath }) {
+  if (!storagePath || !bucket || !supabase) return;
+  try {
+    const { error } = await supabase.storage.from(bucket).remove([storagePath]);
+    if (error) {
+      importDebug('remover staging pptx (não bloqueia)', {
+        message: error.message,
+        path: storagePath,
+      });
+    }
+  } catch (err) {
+    importDebug('remover staging pptx exceção', { message: err?.message });
+  }
+}
+
 function normalizeRels(value) {
   if (!value) return [];
   if (Array.isArray(value)) return value;
@@ -885,53 +941,111 @@ export default async function handler(req, res) {
 
   try {
     const authUserId = await getUserIdFromRequest(req);
-
-    importDebug('parse multipart…');
-    const { fields, files } = await parseForm(req);
-    importDebug('parse OK', {
-      fieldKeys: Object.keys(fields || {}),
-      fileKeys: Object.keys(files || {}),
-    });
-
-    const rawFile = Array.isArray(files.file) ? files.file[0] : files.file;
-    const rawBookId = Array.isArray(fields.bookId)
-      ? fields.bookId[0]
-      : fields.bookId;
-    const rawDryRun = Array.isArray(fields.dryRun)
-      ? fields.dryRun[0]
-      : fields.dryRun;
-    const dryRun = String(rawDryRun || '').toLowerCase() === 'true';
-    const bookId = rawBookId || 'temp-book';
-
     const userId = authUserId;
 
-    if (!rawFile) {
-      importDebug('erro: nenhum files.file', { files });
-      res.status(400).json({ error: 'Arquivo .pptx não enviado.' });
-      return;
+    const contentType = String(req.headers['content-type'] || '').toLowerCase();
+    const isJsonBody = contentType.includes('application/json');
+
+    let bookId = 'temp-book';
+    let dryRun = false;
+    let fileBuffer;
+    let originalName = '';
+    /** Caminho no Storage a remover após sucesso (upload via cliente). */
+    let stagingPathToRemove = null;
+    let stagingBucket = null;
+
+    if (isJsonBody) {
+      importDebug('parse JSON (referência ao Storage)…');
+      const body = await readRequestJson(req);
+      bookId = String(body.bookId || 'temp-book');
+      dryRun = String(body.dryRun || '').toLowerCase() === 'true';
+      const bucket = String(body.bucket || 'presentations');
+      if (!ALLOWED_PPTX_SOURCE_BUCKETS.has(bucket)) {
+        res.status(400).json({ error: 'Bucket de origem não permitido.' });
+        return;
+      }
+      let storagePath;
+      try {
+        storagePath = assertPptxStoragePathForUser(body.storagePath, userId);
+      } catch (pathErr) {
+        res.status(400).json({ error: pathErr.message || 'Caminho inválido.' });
+        return;
+      }
+
+      const supabaseDl = buildStorageClient(req);
+      importDebug('download PPTX do Storage', { bucket, storagePath });
+      const { data: blob, error: dlError } = await supabaseDl.storage
+        .from(bucket)
+        .download(storagePath);
+
+      if (dlError || !blob) {
+        importDebugError('download staging pptx', dlError || new Error('sem blob'));
+        res.status(400).json({
+          error:
+            dlError?.message ||
+            'Não foi possível baixar o arquivo do armazenamento. Confirme o upload e as políticas do bucket.',
+        });
+        return;
+      }
+
+      const ab = await blob.arrayBuffer();
+      fileBuffer = Buffer.from(ab);
+      stagingPathToRemove = storagePath;
+      stagingBucket = bucket;
+      originalName = path.posix.basename(storagePath);
+
+      if (fileBuffer.length > MAX_FILE_SIZE) {
+        res.status(400).json({ error: 'Arquivo muito grande. Limite de 500MB.' });
+        return;
+      }
+
+      importDebug('buffer do Storage', { bytes: fileBuffer.length, originalName });
+    } else {
+      importDebug('parse multipart…');
+      const { fields, files } = await parseForm(req);
+      importDebug('parse OK', {
+        fieldKeys: Object.keys(fields || {}),
+        fileKeys: Object.keys(files || {}),
+      });
+
+      const rawFile = Array.isArray(files.file) ? files.file[0] : files.file;
+      const rawBookId = Array.isArray(fields.bookId)
+        ? fields.bookId[0]
+        : fields.bookId;
+      const rawDryRun = Array.isArray(fields.dryRun)
+        ? fields.dryRun[0]
+        : fields.dryRun;
+      dryRun = String(rawDryRun || '').toLowerCase() === 'true';
+      bookId = rawBookId || 'temp-book';
+
+      if (!rawFile) {
+        importDebug('erro: nenhum files.file', { files });
+        res.status(400).json({ error: 'Arquivo .pptx não enviado.' });
+        return;
+      }
+
+      importDebug('arquivo temporário', {
+        originalFilename: rawFile.originalFilename,
+        newFilename: rawFile.newFilename,
+        filepath: rawFile.filepath,
+        size: rawFile.size,
+        mimetype: rawFile.mimetype,
+      });
+
+      originalName = rawFile.originalFilename || '';
+      if (!originalName.toLowerCase().endsWith('.pptx')) {
+        res.status(400).json({ error: 'Arquivo inválido. Envie um .pptx.' });
+        return;
+      }
+
+      if (rawFile.size > MAX_FILE_SIZE) {
+        res.status(400).json({ error: 'Arquivo muito grande. Limite de 500MB.' });
+        return;
+      }
+
+      fileBuffer = await fs.readFile(rawFile.filepath);
+      importDebug('buffer lido', { bytes: fileBuffer.length });
     }
-
-    importDebug('arquivo temporário', {
-      originalFilename: rawFile.originalFilename,
-      newFilename: rawFile.newFilename,
-      filepath: rawFile.filepath,
-      size: rawFile.size,
-      mimetype: rawFile.mimetype,
-    });
-
-    const originalName = rawFile.originalFilename || '';
-    if (!originalName.toLowerCase().endsWith('.pptx')) {
-      res.status(400).json({ error: 'Arquivo inválido. Envie um .pptx.' });
-      return;
-    }
-
-    if (rawFile.size > MAX_FILE_SIZE) {
-      res.status(400).json({ error: 'Arquivo muito grande. Limite de 500MB.' });
-      return;
-    }
-
-    const fileBuffer = await fs.readFile(rawFile.filepath);
-    importDebug('buffer lido', { bytes: fileBuffer.length });
 
     const zip = await JSZip.loadAsync(fileBuffer);
     const xmlParser = new XMLParser({
@@ -1115,6 +1229,11 @@ export default async function handler(req, res) {
     });
 
     if (dryRun) {
+      await removeStagingImportFile({
+        supabase: buildStorageClient(req),
+        bucket: stagingBucket,
+        storagePath: stagingPathToRemove,
+      });
       res.status(200).json({
         dryRun: true,
         totalSlidesDetected: slideSummaries.length,
@@ -1195,6 +1314,12 @@ export default async function handler(req, res) {
       slidesComImagem: uploadedSlides.length,
       warnings: warnings.length,
       pagesJsonApproxBytes: JSON.stringify(pages).length,
+    });
+
+    await removeStagingImportFile({
+      supabase: buildStorageClient(req),
+      bucket: stagingBucket,
+      storagePath: stagingPathToRemove,
     });
 
     res.status(200).json({
