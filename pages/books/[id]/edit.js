@@ -2,18 +2,19 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/router';
 import Head from 'next/head';
 import Link from 'next/link';
-import { FiChevronLeft, FiSave, FiPlus, FiTrash2, FiRefreshCw, FiMove, FiPlay, FiChevronUp, FiChevronDown, FiCopy, FiType, FiImage, FiMusic, FiEye, FiEyeOff, FiChevronRight, FiBook, FiEdit, FiX, FiLayers } from 'react-icons/fi';
+import { FiChevronLeft, FiSave, FiPlus, FiTrash2, FiRefreshCw, FiMove, FiPlay, FiChevronUp, FiChevronDown, FiCopy, FiType, FiImage, FiMusic, FiEye, FiEyeOff, FiChevronRight, FiBook, FiEdit, FiX, FiLayers, FiUpload } from 'react-icons/fi';
 
 import { useAuth } from '../../../contexts/auth';
 import { getBook, updateBook } from '../../../lib/books';
 import { getAuthors } from '../../../lib/authors';
 import { getCategories } from '../../../lib/categories';
 import CanvasEditor, { AVAILABLE_FONTS } from '../../../components/editor/CanvasEditor';
+import LoadingProgressOverlay from '../../../components/LoadingProgressOverlay';
 import EditorLayout from '../../../components/EditorLayout';
 import MediaLibrary from '../../../components/editor/MediaLibrary';
 import StepContoler from '../../../components/editor/StepContoler';
-import { CANVAS_WIDTH, CANVAS_HEIGHT } from '../../../components/editor/CanvasEditor';
 import ShapeSelector from '../../../components/editor/ShapeSelector';
+import { importPptxForBook } from '../../../lib/pptxImport';
 
 // Deep clone utility to prevent reference issues
 const deepClone = (obj) => {
@@ -33,6 +34,8 @@ const sanitizePages = (pages) => {
     }))
   }));
 };
+
+const hasPageWarning = (page) => Boolean(page?.needsAdjustment);
 
 const getDraftStorageKey = (bookId) => `luditeca:book-edit-draft:${bookId}`;
 
@@ -161,6 +164,9 @@ export default function EditBook() {
 
   // Add state for Layer Manager
   const [showLayerManager, setShowLayerManager] = useState(false);
+  const [isImportingPptx, setIsImportingPptx] = useState(false);
+  const [pptxImportProgress, setPptxImportProgress] = useState(null);
+  const pptxInputRef = useRef(null);
 
   // Verificar autenticação
   useEffect(() => {
@@ -1109,12 +1115,72 @@ export default function EditBook() {
     }
   }, [currentStep, pages]);
 
+  const handlePptxFileChange = useCallback(async (event) => {
+    const selectedFile = event.target.files?.[0];
+    if (!selectedFile || !id || !user?.id) return;
+
+    try {
+      setIsImportingPptx(true);
+      setPptxImportProgress({
+        phase: 'upload',
+        percent: 0,
+        message: 'Iniciando envio do arquivo…',
+      });
+      const payload = await importPptxForBook({
+        bookId: id,
+        userId: user.id,
+        file: selectedFile,
+        onProgress: (info) => {
+          setPptxImportProgress({
+            phase: info.phase,
+            percent:
+              typeof info.percent === 'number' ? info.percent : null,
+            message: info.message || '',
+          });
+        },
+      });
+
+      if (!Array.isArray(payload?.pages) || payload.pages.length === 0) {
+        throw new Error('A importação não gerou páginas válidas.');
+      }
+
+      const importedPages = deepClone(payload.pages);
+      setPages(importedPages);
+      setCurrentPage(0);
+      setCurrentStep(0);
+      setSelectedElement(null);
+      setCurrentTab('pages');
+      setIsModified(true);
+      saveToHistory(importedPages);
+      const warningCount = Array.isArray(payload?.warnings) ? payload.warnings.length : 0;
+      if (warningCount > 0) {
+        alert(
+          `${payload?.message || 'Importação concluída com avisos.'}\n` +
+            `Páginas com ajuste manual: ${warningCount}.`,
+        );
+      } else {
+        alert(payload?.message || `Importação concluída com ${importedPages.length} páginas.`);
+      }
+    } catch (error) {
+      alert(`Falha ao importar PPTX: ${error.message || 'erro desconhecido'}`);
+    } finally {
+      setIsImportingPptx(false);
+      if (event.target) {
+        event.target.value = '';
+      }
+      setTimeout(() => setPptxImportProgress(null), 400);
+    }
+  }, [id, user?.id, saveToHistory]);
+
   if (loading) {
     return (
-      <EditorLayout>
-        <div className="flex items-center justify-center h-64">
-          <div className="text-lg">Loading book...</div>
-        </div>
+      <EditorLayout variant="editor">
+        <LoadingProgressOverlay
+          active
+          title="Carregando editor"
+          message="Buscando o livro, autores e categorias. Isso costuma levar poucos segundos."
+          mode="indeterminate"
+        />
       </EditorLayout>
     );
   }
@@ -1124,14 +1190,35 @@ export default function EditBook() {
   }
 
   return (
-    <EditorLayout>
+    <EditorLayout variant="editor">
       <Head>
         <title>{book?.title || 'Editar Livro'} - UniverseTeca</title>
       </Head>
+
+      {isImportingPptx ? (
+        <LoadingProgressOverlay
+          active
+          title="Importando apresentação"
+          message={
+            pptxImportProgress?.message ||
+            'Enviando e processando o arquivo. Em arquivos grandes isso pode levar vários minutos.'
+          }
+          mode={
+            typeof pptxImportProgress?.percent === 'number'
+              ? 'determinate'
+              : 'indeterminate'
+          }
+          percent={
+            typeof pptxImportProgress?.percent === 'number'
+              ? pptxImportProgress.percent
+              : 0
+          }
+        />
+      ) : null}
       
-      <div className="flex flex-col h-screen bg-gray-900">
+      <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-gray-900">
         {/* Barra superior com título e controles principais */}
-        <div className="bg-gray-800 text-white px-4 py-2 flex items-center justify-between border-b border-gray-700">
+        <div className="flex flex-shrink-0 items-center justify-between border-b border-gray-700 bg-gray-800 px-4 py-2 text-white">
           <div className="flex items-center space-x-4">
             <button
               onClick={goBack}
@@ -1156,7 +1243,7 @@ export default function EditBook() {
         </div>
 
         {/* Abas */}
-        <div className="bg-gray-800 text-white px-4 border-b border-gray-700">
+        <div className="flex-shrink-0 border-b border-gray-700 bg-gray-800 px-4 text-white">
           <div className="flex space-x-4">
             <button
               onClick={() => setCurrentTab('pages')}
@@ -1183,7 +1270,7 @@ export default function EditBook() {
 
         {/* Conteúdo das abas */}
         {currentTab === 'details' ? (
-          <div className="flex-1 bg-gray-900 p-6 overflow-auto">
+          <div className="min-h-0 flex-1 overflow-y-auto bg-gray-900 p-6">
             <div className="max-w-2xl mx-auto bg-gray-800 rounded-lg p-6">
               <div className="space-y-4">
                 <div>
@@ -1273,14 +1360,44 @@ export default function EditBook() {
                     </button>
                   </div>
                 </div>
+
+                <div className="border border-gray-700 rounded-md p-4">
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                    Importar PPTX
+                  </label>
+                  <p className="text-xs text-gray-400 mb-3">
+                    Envie um arquivo .pptx para gerar páginas automáticas no livro.
+                  </p>
+                  <input
+                    ref={pptxInputRef}
+                    type="file"
+                    accept=".pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation"
+                    onChange={handlePptxFileChange}
+                    className="hidden"
+                    disabled={isImportingPptx}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => pptxInputRef.current?.click()}
+                    disabled={isImportingPptx}
+                    className={`px-4 py-2 rounded text-white flex items-center ${
+                      isImportingPptx
+                        ? 'bg-gray-600 cursor-not-allowed'
+                        : 'bg-indigo-600 hover:bg-indigo-700'
+                    }`}
+                  >
+                    <FiUpload className="mr-2" />
+                    {isImportingPptx ? 'Importando PPTX...' : 'Importar arquivo PPTX'}
+                  </button>
+                </div>
               </div>
             </div>
           </div>
         ) : (
-          <>
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
             {/* Controles de página */}
-            <div className="bg-gray-800 border-b border-gray-700 p-2">
-              <div className="flex items-center space-x-2">
+            <div className="flex-shrink-0 border-b border-gray-700 bg-gray-800 p-2">
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
                 <select
                   value={currentPage}
                   onChange={(e) => handlePageChange(parseInt(e.target.value))}
@@ -1288,7 +1405,7 @@ export default function EditBook() {
                 >
                   {pages.map((page, index) => (
                     <option key={page.id} value={index}>
-                      Página {index + 1}
+                      {hasPageWarning(page) ? '⚠ ' : ''}Página {index + 1}
                     </option>
                   ))}
                 </select>
@@ -1407,9 +1524,9 @@ export default function EditBook() {
             </div>
 
             {/* Área do Editor */}
-            <div className="flex-1 flex">
+            <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
               {/* Barra lateral esquerda - StepContoler */}
-              <div className="w-48 bg-gray-800 border-r border-gray-700">
+              <div className="flex w-44 min-w-0 flex-shrink-0 flex-col border-r border-gray-700 bg-gray-800 md:w-48">
                 <StepContoler
                   currentStep={currentStep}
                   maxSteps={Math.max(...(pages[currentPage]?.elements?.map(el => el.step || 0) || [0]), 0)}
@@ -1424,10 +1541,15 @@ export default function EditBook() {
               </div>
 
               {/* Área do Canvas */}
-              <div className="flex-1 flex flex-col">
+              <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+                {hasPageWarning(pages[currentPage]) && (
+                  <div className="mx-2 mt-2 flex-shrink-0 rounded border border-yellow-600 bg-yellow-900/30 px-3 py-2 text-sm text-yellow-200 md:mx-4">
+                    ⚠ Esta página precisa de ajuste manual: {pages[currentPage]?.adjustmentReason || 'falha na importação do slide'}.
+                  </div>
+                )}
                 {/* Canvas */}
-                <div className="flex-1 flex items-center justify-center bg-gray-900">
-                  <div className="relative" style={{ width: `${CANVAS_WIDTH}px`, height: `${CANVAS_HEIGHT}px` }}>
+                <div className="flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-hidden bg-gray-900">
+                  <div className="relative h-full min-h-0 w-full min-w-0">
                     <CanvasEditor
                       page={pages[currentPage]}
                       onChange={handlePageUpdate}
@@ -1454,7 +1576,7 @@ export default function EditBook() {
               </div>
 
               {/* Barra lateral direita - Propriedades e Gerenciador de Camadas */}
-              <div className="w-48 bg-gray-800 border-l border-gray-700 p-2">
+              <div className="flex w-44 min-w-0 flex-shrink-0 flex-col overflow-y-auto border-l border-gray-700 bg-gray-800 p-2 md:w-48">
                 <div className="flex justify-between items-center mb-2">
                   <h3 className="text-white text-xs font-medium">
                     {showLayerManager ? 'Camadas' : 'Propriedades'}
@@ -1698,20 +1820,21 @@ export default function EditBook() {
                 )}
               </div>
             </div>
-          </>
+          </div>
         )}
 
         {/* Media Library Modal */}
         {showMediaLibrary && (
-          <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50">
-            <div className="bg-gray-800 rounded-lg w-3/4 h-3/4 overflow-hidden flex flex-col">
-              <div className="p-4 border-b border-gray-700 flex justify-between items-center">
+          <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
+            <div className="bg-gray-800 rounded-lg w-full max-w-5xl max-h-[min(90vh,900px)] overflow-hidden flex flex-col">
+              <div className="flex-shrink-0 p-4 border-b border-gray-700 flex justify-between items-center">
                 <h2 className="text-white text-xl font-semibold">
                   {mediaSelectionType === 'background' ? 'Selecionar Background' : 
                    mediaSelectionType === 'image' ? 'Selecionar Imagem' : 
                    mediaSelectionType === 'audio' ? 'Selecionar Áudio' : 'Biblioteca de Mídia'}
                 </h2>
                 <button
+                  type="button"
                   onClick={() => setShowMediaLibrary(false)}
                   className="text-gray-400 hover:text-white"
                 >
@@ -1719,7 +1842,7 @@ export default function EditBook() {
                 </button>
               </div>
               
-              <div className="flex-1 overflow-auto">
+              <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
                 <MediaLibrary 
                   onSelect={handleMediaSelected}
                   mediaType={mediaSelectionType}

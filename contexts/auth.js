@@ -1,10 +1,6 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
-import { createClient } from '@supabase/supabase-js';
-
-// Inicializar cliente Supabase
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-const supabase = createClient(supabaseUrl, supabaseKey);
+// Um único cliente no app evita "Multiple GoTrueClient" e sessão inconsistente
+import supabase from '../lib/supabase';
 
 // Criar contexto
 const AuthContext = createContext();

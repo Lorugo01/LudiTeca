@@ -46,19 +46,86 @@ const TEXT_STYLES = [
   { value: 'thought', label: 'Pensamento' }
 ];
 
+/** Texto vindo do PPTX com trechos formatados (negrito por run, etc.) */
+function renderImportedTextContent(element) {
+  const spans = element.contentSpans;
+  if (Array.isArray(spans) && spans.length > 1) {
+    return (
+      <span style={{ whiteSpace: 'pre-wrap', display: 'block' }}>
+        {spans.map((s, i) => (
+          <span
+            key={i}
+            style={{
+              fontWeight: s.fontWeight || element.fontWeight || 'normal',
+              fontStyle: s.fontStyle || element.fontStyle || 'normal',
+              color: s.color || element.color || '#000000',
+              fontSize: s.fontSize
+                ? `${s.fontSize}px`
+                : element.fontSize
+                  ? `${element.fontSize}px`
+                  : '16px',
+              fontFamily: s.fontFamily || element.fontFamily || 'Roboto',
+              textDecoration: getTextDecorationValue(element),
+              lineHeight: element.lineHeight || 1.35,
+              letterSpacing: element.letterSpacing ? `${element.letterSpacing}px` : 'normal',
+            }}
+          >
+            {s.text}
+          </span>
+        ))}
+      </span>
+    );
+  }
+  return (
+    <span
+      style={{
+        whiteSpace: 'pre-wrap',
+        display: 'block',
+        textDecoration: getTextDecorationValue(element),
+        lineHeight: element.lineHeight || 1.35,
+        letterSpacing: element.letterSpacing ? `${element.letterSpacing}px` : 'normal',
+      }}
+    >
+      {element.content}
+    </span>
+  );
+}
+
 // Lista de fontes disponíveis com nomes exatos
 export const AVAILABLE_FONTS = [
+  { value: 'Century Gothic', label: 'Century Gothic' },
+  { value: 'Calibri', label: 'Calibri' },
+  { value: 'Arial', label: 'Arial' },
+  { value: 'Times New Roman', label: 'Times New Roman' },
+  { value: 'Verdana', label: 'Verdana' },
+  { value: 'Tahoma', label: 'Tahoma' },
+  { value: 'Trebuchet MS', label: 'Trebuchet MS' },
+  { value: 'Georgia', label: 'Georgia' },
+  { value: 'Garamond', label: 'Garamond' },
+  { value: 'Cambria', label: 'Cambria' },
+  { value: 'Segoe UI', label: 'Segoe UI' },
+  { value: 'Impact', label: 'Impact' },
+  { value: 'Courier New', label: 'Courier New' },
+  { value: 'Lucida Sans Unicode', label: 'Lucida Sans Unicode' },
+  { value: 'Palatino Linotype', label: 'Palatino Linotype' },
+  { value: 'Book Antiqua', label: 'Book Antiqua' },
+  { value: 'Arial Black', label: 'Arial Black' },
+  { value: 'Comic Sans MS', label: 'Comic Sans MS' },
   { value: 'Roboto', label: 'Roboto' },
-  { value: 'Raleway', label: 'Raleway' },
-  { value: 'Poppins', label: 'Poppins' },
-  { value: 'Patrick Hand', label: 'Patrick Hand' },
   { value: 'Open Sans', label: 'Open Sans' },
   { value: 'Nunito', label: 'Nunito' },
+  { value: 'Poppins', label: 'Poppins' },
   { value: 'Merriweather', label: 'Merriweather' },
-  { value: 'Dosis', label: 'Dosis' },
-  { value: 'Comic Neue', label: 'Comic Neue' },
-  { value: 'Comic Neue Sans', label: 'Comic Neue Sans' }
 ];
+
+function getTextDecorationValue(element) {
+  const isUnderline = element.textDecoration === 'underline';
+  const isStrike = element.textDecoration === 'line-through';
+  if (isUnderline && isStrike) return 'underline line-through';
+  if (isUnderline) return 'underline';
+  if (isStrike) return 'line-through';
+  return 'none';
+}
 
 // Main component wrapped in memo to prevent unnecessary re-renders
 const CanvasEditor = React.memo(({ 
@@ -122,25 +189,38 @@ const CanvasEditor = React.memo(({
   useEffect(() => {
     const calculateScale = () => {
       if (containerRef.current) {
-        const containerWidth = containerRef.current.clientWidth;
-        const containerHeight = containerRef.current.clientHeight;
+        const rect = containerRef.current.getBoundingClientRect();
+        const containerWidth = rect.width;
+        const containerHeight = rect.height;
         
         // Calcula a escala mantendo a proporção
-        const scaleX = (containerWidth - 40) / CANVAS_WIDTH;
-        const scaleY = (containerHeight - 40) / CANVAS_HEIGHT;
+        const horizontalPadding = 32;
+        const verticalPadding = 32;
+        const scaleX = (containerWidth - horizontalPadding) / CANVAS_WIDTH;
+        const scaleY = (containerHeight - verticalPadding) / CANVAS_HEIGHT;
         
         // Usa a menor escala para garantir que o canvas caiba completamente
-        const newScale = Math.min(scaleX, scaleY, 1); // Limitado a 1 (100%)
-        setScale(newScale);
+        const newScale = Math.min(scaleX, scaleY, 1);
+        setScale(newScale > 0 ? newScale : 0.2);
       }
     };
     
     calculateScale();
+
+    const ro = typeof ResizeObserver !== 'undefined' && containerRef.current
+      ? new ResizeObserver(() => calculateScale())
+      : null;
+    if (ro && containerRef.current) {
+      ro.observe(containerRef.current);
+    }
     
     // Recalcula a escala quando a janela for redimensionada
     window.addEventListener('resize', calculateScale);
-    return () => window.removeEventListener('resize', calculateScale);
-  }, []);
+    return () => {
+      window.removeEventListener('resize', calculateScale);
+      if (ro) ro.disconnect();
+    };
+  }, [showLayerManager, isPreviewMode]);
   
   // Effect to sync with parent component, with debounce for better performance
   const changeTimerRef = useRef(null);
@@ -200,7 +280,7 @@ const CanvasEditor = React.memo(({
   }, [handleElementChange]);
   
   const handleTextChange = useCallback((id, content) => {
-    handleElementChange(id, { content });
+    handleElementChange(id, { content, contentSpans: undefined });
   }, [handleElementChange]);
   
   // Element handlers now just pass through to parent
@@ -220,7 +300,10 @@ const CanvasEditor = React.memo(({
       fontWeight: 'normal',
       fontStyle: 'normal',
       textAlign: 'left',
-      color: '#000000'
+      color: '#000000',
+      textDecoration: 'none',
+      lineHeight: 1.35,
+      letterSpacing: 0,
     };
     
     const updatedPage = {
@@ -655,6 +738,9 @@ const CanvasEditor = React.memo(({
               fontStyle: element.fontStyle || 'normal',
               textAlign: element.textAlign || 'left',
               color: element.color || '#000000',
+              textDecoration: getTextDecorationValue(element),
+              lineHeight: element.lineHeight || 1.35,
+              letterSpacing: element.letterSpacing ? `${element.letterSpacing}px` : 'normal',
               position: 'relative',
               userSelect: 'text',
             }}
@@ -662,7 +748,7 @@ const CanvasEditor = React.memo(({
             onMouseDown={(e) => handleMouseDown(e, element.id)}
             className={`element ${element.animation || ''}`}
           >
-            {element.content}
+            {renderImportedTextContent(element)}
             
             {/* Botão de áudio para texto */}
             {element.audio && (
@@ -877,27 +963,33 @@ const CanvasEditor = React.memo(({
     return content;
   };
 
+  /* scale() não reduz o box no layout: o wrapper tem o tamanho visual real para evitar scroll na página */
+  const scaledW = Math.max(1, CANVAS_WIDTH * scale);
+  const scaledH = Math.max(1, CANVAS_HEIGHT * scale);
+
   return (
-    <div className="relative w-full h-full">
-      {/* Área do editor com escala adaptativa */}
-      <div className="flex flex-1">
-        {/* Canvas */}
-        <div 
+    <div className="relative flex h-full min-h-0 w-full flex-col">
+      <div className="flex min-h-0 flex-1">
+        <div
           ref={containerRef}
-          className="relative flex-grow flex items-center justify-center bg-gray-900 overflow-auto"
+          className="relative flex min-h-0 flex-1 flex-grow items-center justify-center overflow-hidden bg-gray-900 p-2"
         >
-          <div 
-            ref={canvasRef}
-            className="relative bg-white"
-            style={{
-              width: `${CANVAS_WIDTH}px`,
-              height: `${CANVAS_HEIGHT}px`,
-              transform: `scale(${scale})`,
-              transformOrigin: 'center',
-              transition: 'transform 0.2s ease'
-            }}
-            onClick={() => !isPreviewMode && setSelectedElement(null)}
+          <div
+            className="relative flex-shrink-0"
+            style={{ width: scaledW, height: scaledH }}
           >
+            <div
+              ref={canvasRef}
+              className="absolute left-0 top-0 bg-white"
+              style={{
+                width: `${CANVAS_WIDTH}px`,
+                height: `${CANVAS_HEIGHT}px`,
+                transform: `scale(${scale})`,
+                transformOrigin: 'top left',
+                transition: 'transform 0.2s ease',
+              }}
+              onClick={() => !isPreviewMode && setSelectedElement(null)}
+            >
             {/* Background da página */}
             <div 
               className="absolute inset-0 w-full h-full"
@@ -1091,6 +1183,9 @@ const CanvasEditor = React.memo(({
                             fontStyle: element.fontStyle || 'normal',
                             textAlign: element.textAlign || 'left',
                             color: element.color || '#000000',
+                            textDecoration: getTextDecorationValue(element),
+                            lineHeight: element.lineHeight || 1.35,
+                            letterSpacing: element.letterSpacing ? `${element.letterSpacing}px` : 'normal',
                             background: 'transparent',
                             border: 'none'
                           }}
@@ -1105,10 +1200,13 @@ const CanvasEditor = React.memo(({
                             fontWeight: element.fontWeight || 'normal',
                             fontStyle: element.fontStyle || 'normal',
                             textAlign: element.textAlign || 'left',
-                            color: element.color || '#000000'
+                            color: element.color || '#000000',
+                            textDecoration: getTextDecorationValue(element),
+                            lineHeight: element.lineHeight || 1.35,
+                            letterSpacing: element.letterSpacing ? `${element.letterSpacing}px` : 'normal',
                           }}
                         >
-                          {element.content}
+                          {renderImportedTextContent(element)}
                         </div>
                       )}
                       {element.textStyle === 'speech' && !editingText && (
@@ -1326,6 +1424,7 @@ const CanvasEditor = React.memo(({
                 </div>
               </Rnd>
             ))}
+            </div>
           </div>
         </div>
       </div>
@@ -1405,7 +1504,7 @@ const CanvasEditor = React.memo(({
                         })
                       }}
                     >
-                      {element.content}
+                      {renderImportedTextContent(element)}
                       {element.textStyle === 'speech' && (
                         <div className="absolute -bottom-4 -left-2 w-4 h-4 bg-white rotate-45 border-b-2 border-r-2 border-gray-300 shadow-sm"></div>
                       )}
@@ -1455,15 +1554,16 @@ const CanvasEditor = React.memo(({
       
       {/* Media Library Modal */}
       {showMediaLibrary && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg w-3/4 h-3/4 overflow-hidden flex flex-col">
-            <div className="p-4 border-b border-gray-200 flex justify-between items-center">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg w-full max-w-5xl max-h-[min(90vh,900px)] overflow-hidden flex flex-col shadow-xl">
+            <div className="flex-shrink-0 p-4 border-b border-gray-200 flex justify-between items-center">
               <h2 className="text-xl font-semibold">
                 {mediaSelectionType === 'background' ? 'Selecionar Background' : 
                  mediaSelectionType === 'image' ? 'Selecionar Imagem' : 
                  mediaSelectionType === 'audio' ? 'Selecionar Áudio' : 'Biblioteca de Mídia'}
               </h2>
               <button
+                type="button"
                 onClick={handleCloseMediaLibrary}
                 className="text-gray-500 hover:text-gray-700"
               >
@@ -1471,7 +1571,7 @@ const CanvasEditor = React.memo(({
               </button>
             </div>
             
-            <div className="flex-grow overflow-auto">
+            <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
               <MediaLibrary 
                 onSelect={handleMediaSelected}
                 mediaType={mediaSelectionType}

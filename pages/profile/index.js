@@ -210,7 +210,7 @@ export default function ProfilePage() {
                 <FiX size={24} />
               </button>
             </div>
-            <div className="flex-1 overflow-auto">
+            <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
               <MediaLibrary 
                 onSelect={handleMediaSelect} 
                 mediaType="image" 

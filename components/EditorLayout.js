@@ -1,21 +1,30 @@
-import { useRouter } from 'next/router';
-//import Link from 'next/link';
-//import { FiChevronLeft } from 'react-icons/fi';
-import { useAuth } from '../contexts/auth';
-
-export default function EditorLayout({ children }) {
-  const router = useRouter();
-  const { user } = useAuth();
+/**
+ * @param {object} props
+ * @param {React.ReactNode} props.children
+ * @param {'default' | 'editor'} [props.variant] — `editor`: viewport fixa sem scroll externo (página de edição de livro)
+ */
+export default function EditorLayout({ children, variant = 'default' }) {
+  const isEditor = variant === 'editor';
 
   return (
-    <div className="flex min-h-screen bg-gray-50">
-      {/* Conteúdo Principal */}
-      <div className="flex-1 flex flex-col">
-        {/* Conteúdo */}
-        <main className="flex-1 overflow-auto">
+    <div
+      className={
+        isEditor
+          ? 'flex h-[100dvh] max-h-[100dvh] min-h-0 overflow-hidden bg-gray-50'
+          : 'flex min-h-screen bg-gray-50'
+      }
+    >
+      <div className="flex min-h-0 flex-1 flex-col">
+        <main
+          className={
+            isEditor
+              ? 'flex min-h-0 flex-1 flex-col overflow-hidden'
+              : 'flex-1 overflow-auto'
+          }
+        >
           {children}
         </main>
       </div>
     </div>
   );
-} 
+}

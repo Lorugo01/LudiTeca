@@ -1,12 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { createClient } from '@supabase/supabase-js';
 import { FiFolder, FiImage, FiMusic, FiVideo, FiFile, FiFilePlus, FiTrash2, FiArrowLeft, FiSearch, FiUpload, FiPlusCircle, FiMove, FiRefreshCw } from 'react-icons/fi';
 import { useAuth } from '../../contexts/auth';
-
-// Initialize Supabase client
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
+import supabase from '../../lib/supabase';
 
 // Cache para armazenar os metadados dos arquivos
 const fileMetadataCache = new Map();
@@ -667,8 +662,9 @@ const MediaLibrary = ({ onSelect, mediaType = 'image' }) => {
   };
 
   return (
-    <div className="p-4 bg-white rounded-lg shadow max-h-[80vh] overflow-y-auto">
-      <div className="flex justify-between items-center mb-4">
+    <div className="flex flex-col h-full min-h-0 bg-white rounded-lg shadow overflow-hidden">
+      <div className="flex-shrink-0 p-4 space-y-4 border-b border-gray-100">
+      <div className="flex justify-between items-center gap-2 flex-wrap">
         <h3 className="text-lg font-medium">{getMediaTypeTitle()} - Bucket: {bucketName}</h3>
         <div className="flex space-x-2">
           <button
@@ -694,7 +690,7 @@ const MediaLibrary = ({ onSelect, mediaType = 'image' }) => {
       </div>
 
       {/* Breadcrumbs navigation */}
-      <div className="flex items-center space-x-1 mb-4 text-sm overflow-x-auto">
+      <div className="flex items-center space-x-1 text-sm overflow-x-auto">
         {currentFolder && (
           <button 
             onClick={goBack}
@@ -719,7 +715,7 @@ const MediaLibrary = ({ onSelect, mediaType = 'image' }) => {
 
       {/* New Folder Form */}
       {showFolderForm && (
-        <div className="bg-gray-50 p-3 rounded mb-4">
+        <div className="bg-gray-50 p-3 rounded">
           <form onSubmit={handleCreateFolder} className="flex flex-col space-y-2">
             <label className="text-sm font-medium">
               Nome da Nova Pasta
@@ -753,7 +749,7 @@ const MediaLibrary = ({ onSelect, mediaType = 'image' }) => {
 
       {/* Upload Form */}
       {showUploadForm && (
-        <div className="bg-gray-50 p-3 rounded mb-4">
+        <div className="bg-gray-50 p-3 rounded">
           <div className="flex flex-col space-y-2">
             <label className={`text-sm font-medium flex items-center justify-center p-6 border-2 border-dashed ${isUploading ? 'border-gray-400 bg-gray-100' : 'border-gray-300 hover:bg-gray-100'} rounded-lg cursor-pointer`}>
               <div className="text-center">
@@ -818,8 +814,8 @@ const MediaLibrary = ({ onSelect, mediaType = 'image' }) => {
         </div>
       )}
 
-      <div className="flex flex-col space-y-4 mb-4">
-        <div className="relative flex-1">
+      <div className="flex flex-col space-y-4">
+        <div className="relative">
           <input
             type="text"
             placeholder="Buscar arquivos..."
@@ -832,11 +828,13 @@ const MediaLibrary = ({ onSelect, mediaType = 'image' }) => {
       </div>
 
       {error && (
-        <div className="bg-red-100 text-red-700 p-3 rounded mb-4">
+        <div className="bg-red-100 text-red-700 p-3 rounded">
           {error}
         </div>
       )}
+      </div>
 
+      <div className="flex-1 min-h-0 overflow-y-auto p-4">
       {loading && filteredFiles.length === 0 ? (
         <div className="p-8 text-center text-gray-500">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto mb-2"></div>
@@ -989,77 +987,80 @@ const MediaLibrary = ({ onSelect, mediaType = 'image' }) => {
             );
           })}
 
-          {/* Confirmation button (only show when an item is selected) */}
-          {selectedFile && (
-            <div className="fixed bottom-4 inset-x-0 flex justify-center z-10">
-              <div className="flex space-x-2">
-                <button 
-                  onClick={() => {
-                    const file = files.find(f => f.id === selectedFile);
-                    if (file) handleDeleteFile(file);
-                  }}
-                  className="bg-red-600 text-white px-4 py-2 rounded shadow-lg hover:bg-red-700 transition-colors flex items-center"
-                >
-                  <FiTrash2 className="mr-2" /> Excluir
-                </button>
-                <button 
-                  onClick={() => setShowMoveDialog(true)}
-                  className="bg-yellow-600 text-white px-4 py-2 rounded shadow-lg hover:bg-yellow-700 transition-colors flex items-center"
-                >
-                  <FiMove className="mr-2" /> Mover
-                </button>
-                <button 
-                  onClick={handleConfirmSelection}
-                  className="bg-blue-600 text-white px-4 py-2 rounded shadow-lg hover:bg-blue-700 transition-colors"
-                >
-                  Confirmar seleção
-                </button>
-              </div>
-            </div>
-          )}
+        </div>
+      )}
+      </div>
 
-          {/* Diálogo de movimentação */}
-          {showMoveDialog && (
-            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-              <div className="bg-white rounded-lg p-6 w-96">
-                <h3 className="text-lg font-medium mb-4">Mover Arquivo</h3>
-                <div className="mb-4">
-                  <label className="block text-sm font-medium mb-2">
-                    Pasta de Destino
-                  </label>
-                  <select
-                    value={targetFolder}
-                    onChange={(e) => setTargetFolder(e.target.value)}
-                    className="w-full border border-gray-300 rounded px-3 py-2"
-                  >
-                    <option value="">Raiz</option>
-                    {availableFolders.map(folder => (
-                      <option key={folder.path} value={folder.path}>
-                        {folder.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="flex justify-end space-x-2">
-                  <button
-                    onClick={() => {
-                      setShowMoveDialog(false);
-                      setTargetFolder('');
-                    }}
-                    className="px-4 py-2 border border-gray-300 rounded hover:bg-gray-100"
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    onClick={handleMoveFile}
-                    className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-                  >
-                    Mover
-                  </button>
-                </div>
-              </div>
+      {selectedFile && (
+        <div className="flex-shrink-0 flex flex-wrap items-center justify-center gap-2 p-4 border-t border-gray-200 bg-gray-50">
+          <button
+            type="button"
+            onClick={() => {
+              const file = files.find(f => f.id === selectedFile);
+              if (file) handleDeleteFile(file);
+            }}
+            className="bg-red-600 text-white px-4 py-2 rounded shadow-sm hover:bg-red-700 transition-colors flex items-center"
+          >
+            <FiTrash2 className="mr-2" /> Excluir
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowMoveDialog(true)}
+            className="bg-yellow-600 text-white px-4 py-2 rounded shadow-sm hover:bg-yellow-700 transition-colors flex items-center"
+          >
+            <FiMove className="mr-2" /> Mover
+          </button>
+          <button
+            type="button"
+            onClick={handleConfirmSelection}
+            className="bg-blue-600 text-white px-4 py-2 rounded shadow-sm hover:bg-blue-700 transition-colors"
+          >
+            Confirmar seleção
+          </button>
+        </div>
+      )}
+
+      {showMoveDialog && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[100]">
+          <div className="bg-white rounded-lg p-6 w-96 max-w-[calc(100vw-2rem)] shadow-xl">
+            <h3 className="text-lg font-medium mb-4">Mover Arquivo</h3>
+            <div className="mb-4">
+              <label className="block text-sm font-medium mb-2">
+                Pasta de Destino
+              </label>
+              <select
+                value={targetFolder}
+                onChange={(e) => setTargetFolder(e.target.value)}
+                className="w-full border border-gray-300 rounded px-3 py-2"
+              >
+                <option value="">Raiz</option>
+                {availableFolders.map(folder => (
+                  <option key={folder.path} value={folder.path}>
+                    {folder.name}
+                  </option>
+                ))}
+              </select>
             </div>
-          )}
+            <div className="flex justify-end space-x-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowMoveDialog(false);
+                  setTargetFolder('');
+                }}
+                className="px-4 py-2 border border-gray-300 rounded hover:bg-gray-100"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleMoveFile}
+                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+              >
+                Mover
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

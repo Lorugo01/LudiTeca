@@ -7,9 +7,12 @@ import { useAuth } from '../../contexts/auth';
 import Link from 'next/link';
 import { toast } from 'react-hot-toast';
 import { FaArrowLeft, FaImage } from 'react-icons/fa';
+import { FiUpload } from 'react-icons/fi';
 import MediaLibrary from '../../components/editor/MediaLibrary';
 import EditorLayout from '../../components/EditorLayout';
+import LoadingProgressOverlay from '../../components/LoadingProgressOverlay';
 import Head from 'next/head';
+import { importPptxForBook } from '../../lib/pptxImport';
 
 export default function NewBook() {
   const [title, setTitle] = useState('');
@@ -24,6 +27,9 @@ export default function NewBook() {
   const [categories, setCategories] = useState([]);
   const [loadingAuthors, setLoadingAuthors] = useState(true);
   const [loadingCategories, setLoadingCategories] = useState(true);
+  const [importedPages, setImportedPages] = useState([]);
+  const [importingPptx, setImportingPptx] = useState(false);
+  const [pptxImportProgress, setPptxImportProgress] = useState(null);
   
   const { user, loading: isLoading } = useAuth();
   const router = useRouter();
@@ -90,6 +96,13 @@ export default function NewBook() {
         throw new Error('O título do livro é obrigatório');
       }
       
+      const defaultPages = [{
+        id: Date.now().toString(),
+        background: '',
+        elements: [],
+        orientation: 'portrait'
+      }];
+
       const bookData = {
         title: title.trim(),
         author_id: authorId || null,
@@ -97,12 +110,7 @@ export default function NewBook() {
         description: description.trim(),
         cover_image: coverImage,
         created_at: new Date().toISOString(),
-        pages: [{
-          id: Date.now().toString(),
-          background: '',
-          elements: [],
-          orientation: 'portrait'
-        }]
+        pages: importedPages.length > 0 ? importedPages : defaultPages
       };
       
       console.log('Enviando dados do livro para criação:', bookData);
@@ -115,13 +123,66 @@ export default function NewBook() {
       }
       
       toast.success('Livro criado com sucesso!');
-      router.push('/books');
+      if (importedPages.length > 0 && data?.id) {
+        router.push(`/books/${data.id}/edit`);
+      } else {
+        router.push('/books');
+      }
     } catch (err) {
       console.error('Exceção capturada no handleSubmit:', err);
       setError(err.message);
       toast.error(err.message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handlePptxImport = async (event) => {
+    const selectedFile = event.target.files?.[0];
+    if (!selectedFile || !user?.id) return;
+
+    try {
+      setImportingPptx(true);
+      setPptxImportProgress({
+        phase: 'upload',
+        percent: 0,
+        message: 'Iniciando envio do arquivo…',
+      });
+      const payload = await importPptxForBook({
+        bookId: 'new-book',
+        userId: user.id,
+        file: selectedFile,
+        onProgress: (info) => {
+          setPptxImportProgress({
+            phase: info.phase,
+            percent:
+              typeof info.percent === 'number' ? info.percent : null,
+            message: info.message || '',
+          });
+        },
+      });
+
+      if (!Array.isArray(payload?.pages) || payload.pages.length === 0) {
+        throw new Error('A importação não retornou páginas válidas.');
+      }
+
+      setImportedPages(payload.pages);
+      const warningCount = Array.isArray(payload?.warnings) ? payload.warnings.length : 0;
+      if (warningCount > 0) {
+        toast.success(
+          `${payload?.message || 'Importação com avisos.'} Ajuste ${warningCount} página(s) no editor.`,
+        );
+      } else {
+        toast.success(payload?.message || `PPTX importado com ${payload.pages.length} páginas.`);
+      }
+    } catch (err) {
+      toast.error(err.message || 'Falha ao importar PPTX');
+    } finally {
+      setImportingPptx(false);
+      if (event.target) {
+        event.target.value = '';
+      }
+      setTimeout(() => setPptxImportProgress(null), 400);
     }
   };
   
@@ -131,7 +192,12 @@ export default function NewBook() {
         <Head>
           <title>Novo Livro - UniverseTeca</title>
         </Head>
-        <div className="text-center p-8">Carregando...</div>
+        <LoadingProgressOverlay
+          active
+          title="Carregando"
+          message="Verificando sua sessão…"
+          mode="indeterminate"
+        />
       </EditorLayout>
     );
   }
@@ -141,6 +207,37 @@ export default function NewBook() {
       <Head>
         <title>Novo Livro - UniverseTeca</title>
       </Head>
+
+      {importingPptx ? (
+        <LoadingProgressOverlay
+          active
+          title="Importando apresentação"
+          message={
+            pptxImportProgress?.message ||
+            'Enviando e processando o arquivo. Em arquivos grandes isso pode levar vários minutos.'
+          }
+          mode={
+            typeof pptxImportProgress?.percent === 'number'
+              ? 'determinate'
+              : 'indeterminate'
+          }
+          percent={
+            typeof pptxImportProgress?.percent === 'number'
+              ? pptxImportProgress.percent
+              : 0
+          }
+        />
+      ) : null}
+
+      {loading ? (
+        <LoadingProgressOverlay
+          active
+          title="Criando livro"
+          message="Salvando no servidor…"
+          mode="indeterminate"
+        />
+      ) : null}
+
       <div className="container mx-auto px-4 py-8">
         <div className="flex items-center justify-center mb-6">
           <h1 className="text-2xl font-bold">Criar Novo Livro</h1>
@@ -228,6 +325,36 @@ export default function NewBook() {
           
           <div className="mb-4">
             <label className="block text-gray-700 text-sm font-bold mb-2">
+              Importar PPTX
+            </label>
+            <div className="flex items-center gap-4">
+              <label
+                className={`font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline flex items-center cursor-pointer ${
+                  importingPptx
+                    ? 'bg-gray-400 text-white cursor-not-allowed'
+                    : 'bg-indigo-600 hover:bg-indigo-700 text-white'
+                }`}
+              >
+                <FiUpload className="mr-2" />
+                {importingPptx ? 'Importando...' : 'Selecionar arquivo PPTX'}
+                <input
+                  type="file"
+                  accept=".pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation"
+                  className="hidden"
+                  onChange={handlePptxImport}
+                  disabled={importingPptx}
+                />
+              </label>
+              {importedPages.length > 0 && (
+                <div className="text-sm text-green-600">
+                  {importedPages.length} páginas importadas
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="mb-4">
+            <label className="block text-gray-700 text-sm font-bold mb-2">
               Capa do Livro
             </label>
             <div className="flex items-center gap-4">
@@ -266,18 +393,19 @@ export default function NewBook() {
         </form>
         
         {showMediaLibrary && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg p-4 w-full max-w-4xl h-3/4">
-              <div className="flex justify-between items-center mb-4">
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg w-full max-w-4xl max-h-[min(90vh,880px)] overflow-hidden flex flex-col shadow-xl">
+              <div className="flex-shrink-0 flex justify-between items-center px-4 py-3 border-b border-gray-200">
                 <h3 className="font-bold text-lg">Selecionar Imagem de Capa</h3>
                 <button 
+                  type="button"
                   onClick={() => setShowMediaLibrary(false)}
                   className="bg-gray-200 rounded-full p-2 hover:bg-gray-300"
                 >
                   &times;
                 </button>
               </div>
-              <div className="h-full overflow-y-auto">
+              <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
                 <MediaLibrary 
                   onSelect={handleMediaSelected} 
                   mediaType="image"
