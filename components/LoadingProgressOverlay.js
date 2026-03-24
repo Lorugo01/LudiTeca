@@ -29,6 +29,10 @@ export default function LoadingProgressOverlay({
   percent = 0,
   showElapsed = true,
   active = true,
+  /** Esconde o aviso longo no rodapé */
+  showFooterHint = true,
+  /** Só barra + percentual curto (sem “Processando…” longo) */
+  compact = false,
 }) {
   const elapsed = useElapsedSeconds(active && showElapsed);
 
@@ -66,7 +70,11 @@ export default function LoadingProgressOverlay({
 
         <div className="mt-3 flex items-center justify-between text-xs text-gray-400">
           <span>
-            {isDeterminate ? `${Math.round(safePercent)}% concluído` : 'Processando…'}
+            {isDeterminate
+              ? `${Math.round(safePercent)}%`
+              : compact
+                ? '…'
+                : 'Processando…'}
           </span>
           {showElapsed ? (
             <span title="Tempo decorrido">
@@ -75,9 +83,11 @@ export default function LoadingProgressOverlay({
           ) : null}
         </div>
 
-        <p className="mt-3 text-xs text-gray-500">
-          Arquivos grandes podem levar vários minutos. Não feche esta aba.
-        </p>
+        {showFooterHint ? (
+          <p className="mt-3 text-xs text-gray-500">
+            Arquivos grandes podem levar vários minutos. Não feche esta aba.
+          </p>
+        ) : null}
       </div>
     </div>
   );

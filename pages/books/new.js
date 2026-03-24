@@ -211,11 +211,10 @@ export default function NewBook() {
       {importingPptx ? (
         <LoadingProgressOverlay
           active
-          title="Importando apresentação"
-          message={
-            pptxImportProgress?.message ||
-            'Enviando e processando o arquivo. Em arquivos grandes isso pode levar vários minutos.'
-          }
+          title="Importando…"
+          message=""
+          compact
+          showFooterHint={false}
           mode={
             typeof pptxImportProgress?.percent === 'number'
               ? 'determinate'
